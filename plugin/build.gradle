@@ -39,7 +39,7 @@ pluginBundle {
     plugins {
 
         GlueMeisterPlugin {
-            id = 'com.github.wrdlbrnft.gluemeister'
+            id = 'com.github.wrdlbrnft.glue-meister'
             displayName = 'GlueMeister'
             tags = ['android', 'proguard', 'plugin']
         }

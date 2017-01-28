@@ -20,7 +20,7 @@ dependencies {
 
 String bintrayUser = hasProperty('bintray_user') ? property('bintray_user') : ''
 String bintrayApiKey = hasProperty('bintray_api_key') ? property('bintray_api_key') : ''
-String versionName = hasProperty('version_name') ? property('version_name') : ''
+String versionName = hasProperty('version_name') ? property('version_name') : '0.1.0.0'
 
 task sourcesJar(type: Jar, dependsOn: classes) {
     classifier = 'sources'
