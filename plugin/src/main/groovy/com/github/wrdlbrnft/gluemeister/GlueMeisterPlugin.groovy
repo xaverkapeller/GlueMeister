@@ -1,6 +1,7 @@
 package com.github.wrdlbrnft.gluemeister
 
 import com.github.wrdlbrnft.gluemeister.BuildConfig
+import groovy.io.FileType
 import groovy.json.JsonBuilder
 import groovy.json.JsonSlurper
 import org.gradle.api.Plugin
@@ -39,7 +40,7 @@ class GlueMeisterPlugin implements Plugin<Project> {
 
                 def javaCompile = (variant.hasProperty('javaCompiler') ? variant.javaCompiler : variant.javaCompile) as Task
                 javaCompile.doFirst {
-                    beforeCompile(project)
+                    beforeCompile(project, variant)
                 }
 
                 javaCompile.doLast {
@@ -49,37 +50,56 @@ class GlueMeisterPlugin implements Plugin<Project> {
         }
     }
 
-    static beforeCompile(project) {
+    static beforeCompile(Project project, variant) {
         printLogo()
         println()
         println '\tGlueMeister is performing its magic! Are you ready for the magic show?'
         println()
 
-        final Map<File, Object> fileConfigMap = new HashMap<>();
-
         println '\t# Now scanning dependencies for GlueMeister componenents...'
+
+        final entities = []
+        final glueables = []
+
         final Set<File> files = new HashSet<>();
         project.configurations.compile.resolve().forEach { files.add(it) }
         project.configurations.provided.resolve().forEach { files.add(it) }
         files.forEach { file ->
-            if (!fileConfigMap.containsKey(file)) {
-                def zipFile = new ZipFile(file)
-                def entries = zipFile.entries().findAll {
-                    it.name == 'glue-meister.json'
-                }
-                if (!entries.isEmpty()) {
-                    println '\t# - Reading Config of ' + file.name
-                    entries.each {
-                        final slurper = new JsonSlurper();
-                        final result = slurper.parseText(zipFile.getInputStream(it).text)
-                        fileConfigMap.put(file, result)
-                    }
+            def zipFile = new ZipFile(file)
+            def entries = zipFile.entries().findAll {
+                it.name == 'glue-meister.json'
+            }
+            if (!entries.isEmpty()) {
+                println '\t#'
+                print '\t# - Reading Config of ' + file.name + ': '
+                entries.each {
+                    final slurper = new JsonSlurper();
+                    final result = slurper.parseText(zipFile.getInputStream(it).text)
+                    entities.addAll(result.entities)
+                    glueables.addAll(result.glueables)
+
+                    println 'Found ' + (result.entities.size() + result.glueables.size()) + ' GlueMeister components'
                 }
             }
         }
-        println '\t# Scanning dependencies is done!'
-        println()
+        if (!entities.isEmpty() || !glueables.isEmpty()) {
+            println '\t#'
+            println '\t# Scanning dependencies is done!'
+        } else {
+            println '\t# Scanning dependencies is done! Nothing was found...'
+        }
 
+        final jsonBulder = new JsonBuilder();
+        jsonBulder entities: entities, glueables: glueables
+
+        final outputDir = new File(project.buildDir, '/generated/source/apt/' + variant.name + '/com/github/wrdlbrnft/gluemeister')
+        outputDir.mkdirs()
+        final dependenciesFile = new File(outputDir, 'glue-meister-dependencies.json')
+        dependenciesFile.withWriter {
+            it.append(jsonBulder.toString())
+        }
+
+        println()
         println '\tNow your code will be compiled and GlueMeister components generated...'
         println '\tCompilation starts now...'
         println()
@@ -91,20 +111,23 @@ class GlueMeisterPlugin implements Plugin<Project> {
 
         if (projectInfo.library) {
             println '\tNow we are exporting GlueMeister configuration.'
-            println '\tThis enabled other projects depending on this library to use GlueMeister components you defined here.'
+            println '\tThis enables other projects depending on this library to use GlueMeister components you defined here.'
             println()
 
-            final List<String> entities = new ArrayList<>();
+            final List entities = new ArrayList<>();
+            final List glueables = new ArrayList<>();
 
-            def files = new FileNameFinder().getFileNames(project.buildDir.absolutePath, '**/' + variant.name + '/com/github/wrdlbrnft/gluemeister/glue-meister_*.json')
-            files.each {
-                final slurper = new JsonSlurper();
-                final result = slurper.parseText(new File(it).text)
-                entities.addAll(result.entities);
+            project.buildDir.traverse(type: FileType.FILES, nameFilter: ~/glue-meister_[0-9]+.json/) {
+                if (it.absolutePath.endsWith('/' + variant.name + '/com/github/wrdlbrnft/gluemeister/' + it.name)) {
+                    final slurper = new JsonSlurper();
+                    final result = slurper.parseText(it.text)
+                    entities.addAll(result.entities);
+                    glueables.addAll(result.glueables);
+                }
             }
 
             def builder = new JsonBuilder();
-            builder entities: entities
+            builder entities: entities, glueables: glueables
 
             println '\tExported Entities:'
             entities.each {

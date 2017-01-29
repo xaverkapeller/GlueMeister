@@ -13,11 +13,11 @@ public class GlueMeisterException extends RuntimeException {
     private final Element mElement;
 
     public GlueMeisterException(String message, Element element) {
-        super(message);
+        super(message, null);
         mElement = element;
     }
 
-    public GlueMeisterException(String message, Throwable cause, Element element) {
+    public GlueMeisterException(String message, Element element, Throwable cause) {
         super(message, cause);
         mElement = element;
     }
