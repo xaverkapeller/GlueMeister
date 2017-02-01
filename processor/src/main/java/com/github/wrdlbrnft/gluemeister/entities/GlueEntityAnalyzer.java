@@ -2,7 +2,6 @@ package com.github.wrdlbrnft.gluemeister.entities;
 
 import com.github.wrdlbrnft.gluemeister.GlueEntity;
 import com.github.wrdlbrnft.gluemeister.entities.exceptions.GlueEntityAnalyzerException;
-import com.github.wrdlbrnft.gluemeister.utils.ElementUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -14,6 +13,7 @@ import javax.lang.model.element.Element;
 import javax.lang.model.element.TypeElement;
 import javax.tools.Diagnostic;
 
+import static com.github.wrdlbrnft.gluemeister.utils.ElementUtils.findContainingPackageName;
 import static com.github.wrdlbrnft.gluemeister.utils.ElementUtils.verifyAccessibility;
 import static com.github.wrdlbrnft.gluemeister.utils.ElementUtils.verifyStaticModifier;
 
@@ -55,10 +55,10 @@ public class GlueEntityAnalyzer {
     private GlueEntityInfo analyzeEntity(TypeElement element) {
         verifyStaticModifier(element, GlueEntityAnalyzerException::new);
         verifyAccessibility(element, GlueEntityAnalyzerException::new);
-        final String factoryName = determineFactoryName(element);
         return new GlueEntityInfoImpl(
                 element,
-                factoryName
+                findContainingPackageName(element),
+                determineFactoryName(element)
         );
     }
 
@@ -73,10 +73,12 @@ public class GlueEntityAnalyzer {
     private static class GlueEntityInfoImpl implements GlueEntityInfo {
 
         private final TypeElement mEntityElement;
+        private final String mFactoryPackageName;
         private final String mFactoryName;
 
-        private GlueEntityInfoImpl(TypeElement entityElement, String factoryName) {
+        private GlueEntityInfoImpl(TypeElement entityElement, String factoryPackageName, String factoryName) {
             mEntityElement = entityElement;
+            mFactoryPackageName = factoryPackageName;
             mFactoryName = factoryName;
         }
 
@@ -86,6 +88,10 @@ public class GlueEntityAnalyzer {
         }
 
         @Override
+        public String getFactoryPackageName() {
+            return mFactoryPackageName;
+        }
+
         public String getFactoryName() {
             return mFactoryName;
         }

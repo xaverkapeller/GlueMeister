@@ -8,6 +8,7 @@ import java.util.function.BiFunction;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.Modifier;
+import javax.lang.model.element.PackageElement;
 
 /**
  * Created with Android Studio<br>
@@ -41,7 +42,7 @@ public class ElementUtils {
         }
 
         if (!hasPublicOrPackageLocalVisibility(element)) {
-            throw exceptionFactory.apply("Element " + element.getSimpleName() + " is not accessible to GlueMeister. Nested Elements have to have at least package local or public visibility.", element);
+            throw exceptionFactory.apply("Element " + element.getSimpleName() + " is not accessible to GlueMeister. The element has to have at least package local or public visibility.", element);
         }
 
         while (enclosingElement.getKind() != ElementKind.PACKAGE) {
@@ -60,6 +61,37 @@ public class ElementUtils {
                 return;
             }
         }
+    }
+
+    public static PackageElement findContainingPackage(Element element) {
+        Element enclosingElement = element.getEnclosingElement();
+
+        if (enclosingElement == null) {
+            return null;
+        }
+
+        if (enclosingElement.getKind() == ElementKind.PACKAGE) {
+            return (PackageElement) enclosingElement;
+        }
+
+        while (enclosingElement.getKind() != ElementKind.PACKAGE) {
+
+            enclosingElement = enclosingElement.getEnclosingElement();
+
+            if (enclosingElement == null) {
+                return null;
+            }
+        }
+
+        return (PackageElement) enclosingElement;
+    }
+
+    public static String findContainingPackageName(Element element) {
+        final PackageElement packageElement = findContainingPackage(element);
+        if (packageElement == null) {
+            return "";
+        }
+        return packageElement.getQualifiedName().toString();
     }
 
     public static boolean isStatic(Element element) {

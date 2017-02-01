@@ -10,5 +10,6 @@ import javax.lang.model.element.TypeElement;
 
 public interface GlueEntityInfo {
     TypeElement getEntityElement();
+    String getFactoryPackageName();
     String getFactoryName();
 }

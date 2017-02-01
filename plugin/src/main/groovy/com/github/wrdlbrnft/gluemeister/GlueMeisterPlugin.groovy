@@ -131,7 +131,7 @@ class GlueMeisterPlugin implements Plugin<Project> {
 
             println '\tExported Entities:'
             entities.each {
-                println '\t - ' + it
+                println '\t - ' + it.entityClass
             }
 
             final glueOutputDir = new File(project.buildDir, 'generated/glue/' + variant.name)

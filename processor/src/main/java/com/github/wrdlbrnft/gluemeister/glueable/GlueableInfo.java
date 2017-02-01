@@ -1,5 +1,7 @@
 package com.github.wrdlbrnft.gluemeister.glueable;
 
+import javax.lang.model.element.Element;
+
 /**
  * Created with Android Studio<br>
  * User: Xaver<br>
@@ -9,6 +11,6 @@ package com.github.wrdlbrnft.gluemeister.glueable;
 public interface GlueableInfo {
 
     GlueableType getType();
-    String getIdentifier();
-
+    Element getElement();
+    String getKey();
 }

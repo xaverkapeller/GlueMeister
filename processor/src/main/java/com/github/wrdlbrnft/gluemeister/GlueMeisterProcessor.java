@@ -1,25 +1,24 @@
 package com.github.wrdlbrnft.gluemeister;
 
 import com.github.wrdlbrnft.codebuilder.code.SourceFile;
-import com.github.wrdlbrnft.gluemeister.config.GlueMeisterConfigFile;
-import com.github.wrdlbrnft.gluemeister.config.GlueMeisterConfigFileWriter;
+import com.github.wrdlbrnft.gluemeister.config.GlueMeisterConfig;
+import com.github.wrdlbrnft.gluemeister.config.GlueMeisterConfigManager;
 import com.github.wrdlbrnft.gluemeister.entities.GlueEntityAnalyzer;
 import com.github.wrdlbrnft.gluemeister.entities.GlueEntityInfo;
+import com.github.wrdlbrnft.gluemeister.entities.exceptions.GlueEntityFactoryException;
 import com.github.wrdlbrnft.gluemeister.entities.factories.GlueEntityFactoryBuilder;
 import com.github.wrdlbrnft.gluemeister.entities.factories.GlueEntityFactoryInfo;
 import com.github.wrdlbrnft.gluemeister.glueable.GlueableAnalyzer;
 import com.github.wrdlbrnft.gluemeister.glueable.GlueableInfo;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.Writer;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import javax.annotation.processing.AbstractProcessor;
 import javax.annotation.processing.ProcessingEnvironment;
@@ -28,8 +27,6 @@ import javax.annotation.processing.SupportedSourceVersion;
 import javax.lang.model.SourceVersion;
 import javax.lang.model.element.TypeElement;
 import javax.tools.Diagnostic;
-import javax.tools.FileObject;
-import javax.tools.StandardLocation;
 
 /**
  * Created with Android Studio<br>
@@ -39,21 +36,21 @@ import javax.tools.StandardLocation;
 @SupportedSourceVersion(SourceVersion.RELEASE_8)
 public class GlueMeisterProcessor extends AbstractProcessor {
 
-    private int mRound = 0;
-
-    private GlueMeisterConfigFileWriter mConfigFileWriter;
     private GlueableAnalyzer mGlueableAnalyzer;
     private GlueEntityAnalyzer mGlueEntityAnalyzer;
     private GlueEntityFactoryBuilder mGlueEntityFactoryBuilder;
+    private GlueMeisterConfigManager mConfigManager;
+
+    private int mRound = 0;
 
     @Override
     public synchronized void init(ProcessingEnvironment processingEnv) {
         super.init(processingEnv);
 
-        mConfigFileWriter = new GlueMeisterConfigFileWriter();
         mGlueableAnalyzer = new GlueableAnalyzer(processingEnv);
         mGlueEntityAnalyzer = new GlueEntityAnalyzer(processingEnv);
         mGlueEntityFactoryBuilder = new GlueEntityFactoryBuilder(processingEnv);
+        mConfigManager = new GlueMeisterConfigManager(processingEnv);
     }
 
     @Override
@@ -61,7 +58,7 @@ public class GlueMeisterProcessor extends AbstractProcessor {
         System.out.println(String.format(Locale.getDefault(), "\t# Round %d: Generating GlueMeister components...", mRound));
 
         try {
-            performProcessing(roundEnv);
+            tryProcessing(roundEnv);
         } catch (GlueMeisterException e) {
             processingEnv.getMessager().printMessage(
                     Diagnostic.Kind.ERROR,
@@ -84,48 +81,44 @@ public class GlueMeisterProcessor extends AbstractProcessor {
         return false;
     }
 
-    private void performProcessing(RoundEnvironment roundEnv) {
-        readDependenciesConfigFile();
+    private void tryProcessing(RoundEnvironment roundEnv) {
+        final GlueMeisterConfig dependencyConfig = mConfigManager.readConfigFile("glue-meister-dependencies.json");
+        final GlueMeisterConfig currentConfig = analyzeCurrentEnvironment(roundEnv);
+
+        buildGlueMeisterComponents(currentConfig, dependencyConfig);
+
+        final String outputConfigName = String.format(Locale.getDefault(), "glue-meister_%d.json", mRound);
+        mConfigManager.writeConfigFile(currentConfig, outputConfigName);
+    }
+
+    private GlueMeisterConfig analyzeCurrentEnvironment(RoundEnvironment roundEnv) {
         final List<GlueEntityInfo> glueEntityInfos = mGlueEntityAnalyzer.analyze(roundEnv);
+        final List<GlueableInfo> glueableInfos = mGlueableAnalyzer.analyze(roundEnv);
+        return new GlueMeisterConfigImpl(glueEntityInfos, glueableInfos);
+    }
+
+    private void buildGlueMeisterComponents(GlueMeisterConfig currentConfig, GlueMeisterConfig dependencyConfig) {
+        final List<GlueEntityInfo> glueEntityInfos = currentConfig.getGlueEntityInfos();
+        final List<GlueableInfo> allGlueables = Stream.of(currentConfig.getGlueableInfos(), dependencyConfig.getGlueableInfos())
+                .flatMap(Collection::stream)
+                .collect(Collectors.toList());
         for (GlueEntityInfo glueEntityInfo : glueEntityInfos) {
-            final GlueEntityFactoryInfo entityFactoryInfo = mGlueEntityFactoryBuilder.build(glueEntityInfo);
             try {
+                final GlueEntityFactoryInfo entityFactoryInfo = mGlueEntityFactoryBuilder.build(glueEntityInfo, allGlueables);
                 final SourceFile sourceFile = SourceFile.create(processingEnv, entityFactoryInfo.getPackageName());
                 sourceFile.write(entityFactoryInfo.getImplementation());
                 sourceFile.flushAndClose();
+            } catch (GlueEntityFactoryException e) {
+                processingEnv.getMessager().printMessage(
+                        Diagnostic.Kind.ERROR,
+                        e.getMessage(),
+                        e.getElement()
+                );
             } catch (IOException e) {
                 final TypeElement entityElement = glueEntityInfo.getEntityElement();
                 throw new GlueMeisterException("Failed to create factory for GlueEntity " + entityElement.getSimpleName() + ".", entityElement, e);
             }
         }
-
-        final List<GlueableInfo> glueableInfos = mGlueableAnalyzer.analyze(roundEnv);
-        final GlueMeisterConfigFile configFile = mConfigFileWriter.write(glueEntityInfos, glueableInfos);
-
-        try (final Writer writer = openOutputFile()) {
-            writer.append(configFile.toString());
-        } catch (IOException e) {
-            e.printStackTrace();
-            processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR, "Failed to generate glue-meister.json");
-        }
-    }
-
-    private void readDependenciesConfigFile() {
-        try {
-            final FileObject resource = processingEnv.getFiler().getResource(StandardLocation.SOURCE_OUTPUT, "com.github.wrdlbrnft.gluemeister", "glue-meister-dependencies.json");
-            final InputStream inputStream = resource.openInputStream();
-            final BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream));
-            final String json = reader.lines().collect(Collectors.joining());
-
-        } catch (IOException e) {
-            throw new GlueMeisterException("Failed to read config file. Something seems to be wrong with your project setup!", null, e);
-        }
-    }
-
-    private Writer openOutputFile() throws IOException {
-        return processingEnv.getFiler()
-                .createResource(StandardLocation.SOURCE_OUTPUT, "com.github.wrdlbrnft.gluemeister", String.format(Locale.getDefault(), "glue-meister_%d.json", mRound))
-                .openWriter();
     }
 
     @Override
@@ -135,5 +128,26 @@ public class GlueMeisterProcessor extends AbstractProcessor {
         annotations.add(GlueInject.class.getCanonicalName());
         annotations.add(Glueable.class.getCanonicalName());
         return annotations;
+    }
+
+    private static class GlueMeisterConfigImpl implements GlueMeisterConfig {
+
+        private final List<GlueEntityInfo> mGlueEntityInfos;
+        private final List<GlueableInfo> mGlueableInfos;
+
+        private GlueMeisterConfigImpl(List<GlueEntityInfo> glueEntityInfos, List<GlueableInfo> glueableInfos) {
+            mGlueEntityInfos = glueEntityInfos;
+            mGlueableInfos = glueableInfos;
+        }
+
+        @Override
+        public List<GlueEntityInfo> getGlueEntityInfos() {
+            return mGlueEntityInfos;
+        }
+
+        @Override
+        public List<GlueableInfo> getGlueableInfos() {
+            return mGlueableInfos;
+        }
     }
 }

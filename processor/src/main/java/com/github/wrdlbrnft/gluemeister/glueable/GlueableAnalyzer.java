@@ -2,7 +2,6 @@ package com.github.wrdlbrnft.gluemeister.glueable;
 
 import com.github.wrdlbrnft.gluemeister.Glueable;
 import com.github.wrdlbrnft.gluemeister.glueable.exceptions.GlueableAnalyzerException;
-import com.github.wrdlbrnft.gluemeister.utils.ElementUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -87,8 +86,17 @@ public class GlueableAnalyzer {
                 classElement.getModifiers().contains(Modifier.ABSTRACT)
                         ? GlueableType.ABSTRACT_CLASS
                         : GlueableType.CLASS,
-                classElement.getQualifiedName().toString()
+                classElement,
+                parseKey(classElement)
         );
+    }
+
+    private String parseKey(Element element) {
+        final Glueable glueableAnnotation = element.getAnnotation(Glueable.class);
+        if (glueableAnnotation.value().trim().isEmpty()) {
+            return null;
+        }
+        return glueableAnnotation.value();
     }
 
     private GlueableInfo analyzeInterface(TypeElement interfaceElement) {
@@ -96,7 +104,8 @@ public class GlueableAnalyzer {
         verifyAccessibility(interfaceElement, GlueableAnalyzerException::new);
         return new GlueableInfoImpl(
                 GlueableType.INTERFACE,
-                interfaceElement.getQualifiedName().toString()
+                interfaceElement,
+                parseKey(interfaceElement)
         );
     }
 
@@ -106,13 +115,9 @@ public class GlueableAnalyzer {
         verifyAccessibility(fieldElement, GlueableAnalyzerException::new);
         return new GlueableInfoImpl(
                 GlueableType.STATIC_FIELD,
-                createFieldIdentifier(fieldElement)
+                fieldElement,
+                parseKey(fieldElement)
         );
-    }
-
-    private static String createFieldIdentifier(VariableElement fieldElement) {
-        final TypeElement enclosingElement = (TypeElement) fieldElement.getEnclosingElement();
-        return enclosingElement.getQualifiedName().toString() + "#" + fieldElement.getSimpleName();
     }
 
     private GlueableInfo analyzeMethod(ExecutableElement methodElement) {
@@ -120,23 +125,21 @@ public class GlueableAnalyzer {
         verifyAccessibility(methodElement, GlueableAnalyzerException::new);
         return new GlueableInfoImpl(
                 GlueableType.STATIC_METHOD,
-                createMethodIdentifier(methodElement)
+                methodElement,
+                parseKey(methodElement)
         );
-    }
-
-    private static String createMethodIdentifier(ExecutableElement methodElement) {
-        final TypeElement enclosingElement = (TypeElement) methodElement.getEnclosingElement();
-        return enclosingElement.getQualifiedName().toString() + "::" + methodElement.getSimpleName();
     }
 
     private static class GlueableInfoImpl implements GlueableInfo {
 
         private final GlueableType mType;
-        private final String mIdentifier;
+        private final Element mElement;
+        private final String mKey;
 
-        private GlueableInfoImpl(GlueableType type, String identifier) {
+        private GlueableInfoImpl(GlueableType type, Element element, String key) {
             mType = type;
-            mIdentifier = identifier;
+            mElement = element;
+            mKey = key;
         }
 
         @Override
@@ -145,8 +148,13 @@ public class GlueableAnalyzer {
         }
 
         @Override
-        public String getIdentifier() {
-            return mIdentifier;
+        public Element getElement() {
+            return mElement;
+        }
+
+        @Override
+        public String getKey() {
+            return mKey;
         }
     }
 }
