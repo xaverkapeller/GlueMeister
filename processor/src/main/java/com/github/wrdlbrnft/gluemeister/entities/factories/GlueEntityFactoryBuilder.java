@@ -82,7 +82,7 @@ public class GlueEntityFactoryBuilder {
         final List<ExecutableElement> constructors = entityElement.getEnclosedElements().stream()
                 .filter(element -> element.getKind() == ElementKind.CONSTRUCTOR)
                 .map(ExecutableElement.class::cast)
-                .sorted((a, b) -> Integer.signum(a.getParameters().size() - b.getParameters().size()))
+                .sorted((a, b) -> Integer.signum(b.getParameters().size() - a.getParameters().size()))
                 .collect(Collectors.toList());
 
         for (ExecutableElement constructor : constructors) {
@@ -125,16 +125,6 @@ public class GlueEntityFactoryBuilder {
         }
     }
 
-    private CodeElement resolveField(VariableElement fieldElement) {
-        final TypeElement enclosingElement = (TypeElement) fieldElement.getEnclosingElement();
-        return new BlockWriter() {
-            @Override
-            protected void write(Block block) {
-                block.append(Types.of(enclosingElement)).append(".").append(fieldElement.getSimpleName().toString());
-            }
-        };
-    }
-
     private GlueableInfo findGlueableForParameter(List<GlueableInfo> glueables, VariableElement parameter) {
         final GlueInject glueInject = parameter.getAnnotation(GlueInject.class);
         final String key = glueInject.value();
@@ -144,6 +134,16 @@ public class GlueEntityFactoryBuilder {
         return glueables.stream()
                 .filter(info -> key.equals(info.getKey()))
                 .findFirst().orElseThrow(() -> new GlueEntityConstructorNotSatisfiedException("Parameter " + parameter.getSimpleName() + " cannot be injected by GlueMeister. No component annotated with @Glueable matches the key \"" + key + "\". Make sure there is an @Glueable component which can be used to satisfy it.", parameter));
+    }
+
+    private CodeElement resolveField(VariableElement fieldElement) {
+        final TypeElement enclosingElement = (TypeElement) fieldElement.getEnclosingElement();
+        return new BlockWriter() {
+            @Override
+            protected void write(Block block) {
+                block.append(Types.of(enclosingElement)).append(".").append(fieldElement.getSimpleName().toString());
+            }
+        };
     }
 
     private String determineFactoryPackageName(TypeElement entityElement) {
