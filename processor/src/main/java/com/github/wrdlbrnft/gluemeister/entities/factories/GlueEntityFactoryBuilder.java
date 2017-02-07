@@ -7,6 +7,7 @@ import com.github.wrdlbrnft.codebuilder.executables.ExecutableBuilder;
 import com.github.wrdlbrnft.codebuilder.executables.Method;
 import com.github.wrdlbrnft.codebuilder.implementations.Implementation;
 import com.github.wrdlbrnft.codebuilder.types.DefinedType;
+import com.github.wrdlbrnft.codebuilder.types.Type;
 import com.github.wrdlbrnft.codebuilder.types.Types;
 import com.github.wrdlbrnft.codebuilder.variables.Variable;
 import com.github.wrdlbrnft.gluemeister.GlueInject;
@@ -30,6 +31,7 @@ import javax.lang.model.element.Modifier;
 import javax.lang.model.element.PackageElement;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.VariableElement;
+import javax.lang.model.type.TypeMirror;
 import javax.tools.Diagnostic;
 
 /**
@@ -66,7 +68,7 @@ public class GlueEntityFactoryBuilder {
 
                     @Override
                     protected void write(Block block) {
-                        block.append("return ").append(entityType.newInstance(resolveEntityParameters(entityInfo, allGlueables))).append(";");
+                        block.append("return ").append(resolveClass(entityElement, allGlueables)).append(";");
                     }
                 })
                 .build());
@@ -77,8 +79,7 @@ public class GlueEntityFactoryBuilder {
         );
     }
 
-    private CodeElement[] resolveEntityParameters(GlueEntityInfo entityInfo, List<GlueableInfo> glueables) {
-        final TypeElement entityElement = entityInfo.getEntityElement();
+    private CodeElement[] resolveTypeConstructorParameters(TypeElement entityElement, List<GlueableInfo> glueables) {
         final List<ExecutableElement> constructors = entityElement.getEnclosedElements().stream()
                 .filter(element -> element.getKind() == ElementKind.CONSTRUCTOR)
                 .map(ExecutableElement.class::cast)
@@ -93,7 +94,7 @@ public class GlueEntityFactoryBuilder {
             try {
                 return constructor.getParameters().stream()
                         .map(parameter -> findGlueableForParameter(glueables, parameter))
-                        .map(this::resolveGlueableCodeElement)
+                        .map(info -> resolveGlueableCodeElement(info, glueables))
                         .toArray(CodeElement[]::new);
             } catch (GlueEntityConstructorNotSatisfiedException e) {
                 mProcessingEnvironment.getMessager().printMessage(
@@ -107,33 +108,46 @@ public class GlueEntityFactoryBuilder {
         throw new GlueEntityFactoryException("GlueMeister cannot create instances of " + entityElement.getSimpleName() + " because there is no constructor whose parameters can be satisfied. Look at the previous warnings to figure out why.", entityElement);
     }
 
-    private CodeElement resolveGlueableCodeElement(GlueableInfo glueableInfo) {
+    private GlueableInfo findGlueableForParameter(List<GlueableInfo> glueables, VariableElement parameter) {
+        final GlueInject glueInject = parameter.getAnnotation(GlueInject.class);
+        if (glueInject != null) {
+            final String key = glueInject.value();
+            if (!key.trim().isEmpty()) {
+                return glueables.stream()
+                        .filter(info -> key.equals(info.getKey()))
+                        .findAny().orElseThrow(() -> new GlueEntityConstructorNotSatisfiedException("Parameter " + parameter.getSimpleName() + " cannot be injected by GlueMeister. No component annotated with @Glueable matches the key \"" + key + "\". Make sure there is an @Glueable component which can be used to satisfy it.", parameter));
+            }
+        }
+
+        final TypeMirror parameterTypeMirror = parameter.asType();
+        return glueables.stream()
+                .filter(info -> {
+                    final Element element = info.getElement();
+                    final TypeMirror glueableTypeMirror = element.asType();
+                    return mProcessingEnvironment.getTypeUtils().isAssignable(glueableTypeMirror, parameterTypeMirror);
+                })
+                .findAny().orElseThrow(() -> new GlueEntityConstructorNotSatisfiedException("Parameter " + parameter.getSimpleName() + " cannot be injected by GlueMeister. Make sure there is an @Glueable component which can be used to satisfy it.", parameter));
+    }
+
+    private CodeElement resolveGlueableCodeElement(GlueableInfo glueableInfo, List<GlueableInfo> glueables) {
         switch (glueableInfo.getType()) {
 
             case STATIC_FIELD:
                 final VariableElement fieldElement = (VariableElement) glueableInfo.getElement();
                 return resolveField(fieldElement);
 
+            case CLASS:
+                final TypeElement classElement = (TypeElement) glueableInfo.getElement();
+                return resolveClass(classElement, glueables);
+
             case STATIC_METHOD:
             case INTERFACE:
             case ABSTRACT_CLASS:
-            case CLASS:
                 throw new GlueEntityConstructorNotSatisfiedException("Injecting this component is not yet supported. Look for an update!", glueableInfo.getElement());
 
             default:
                 throw new GlueMeisterException("Encountered unknown GlueableType: " + glueableInfo.getType(), glueableInfo.getElement());
         }
-    }
-
-    private GlueableInfo findGlueableForParameter(List<GlueableInfo> glueables, VariableElement parameter) {
-        final GlueInject glueInject = parameter.getAnnotation(GlueInject.class);
-        final String key = glueInject.value();
-        if (key.trim().isEmpty()) {
-            throw new GlueEntityConstructorNotSatisfiedException("Parameter " + parameter.getSimpleName() + " cannot be injected by GlueMeister. Make sure there is an @Glueable component which can be used to satisfy it.", parameter);
-        }
-        return glueables.stream()
-                .filter(info -> key.equals(info.getKey()))
-                .findFirst().orElseThrow(() -> new GlueEntityConstructorNotSatisfiedException("Parameter " + parameter.getSimpleName() + " cannot be injected by GlueMeister. No component annotated with @Glueable matches the key \"" + key + "\". Make sure there is an @Glueable component which can be used to satisfy it.", parameter));
     }
 
     private CodeElement resolveField(VariableElement fieldElement) {
@@ -142,6 +156,16 @@ public class GlueEntityFactoryBuilder {
             @Override
             protected void write(Block block) {
                 block.append(Types.of(enclosingElement)).append(".").append(fieldElement.getSimpleName().toString());
+            }
+        };
+    }
+
+    private CodeElement resolveClass(TypeElement classElement, List<GlueableInfo> glueables) {
+        final Type entityType = Types.of(classElement);
+        return new BlockWriter() {
+            @Override
+            protected void write(Block block) {
+                block.append(entityType.newInstance(resolveTypeConstructorParameters(classElement, glueables)));
             }
         };
     }
