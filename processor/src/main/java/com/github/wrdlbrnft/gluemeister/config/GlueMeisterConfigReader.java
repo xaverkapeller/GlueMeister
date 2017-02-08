@@ -2,9 +2,10 @@ package com.github.wrdlbrnft.gluemeister.config;
 
 import com.github.wrdlbrnft.gluemeister.GlueMeisterException;
 import com.github.wrdlbrnft.gluemeister.config.exceptions.GlueMeisterConfigException;
-import com.github.wrdlbrnft.gluemeister.entities.GlueEntityInfo;
 import com.github.wrdlbrnft.gluemeister.glueable.GlueableInfo;
 import com.github.wrdlbrnft.gluemeister.glueable.GlueableType;
+import com.github.wrdlbrnft.gluemeister.modules.GlueModuleInfo;
+import com.github.wrdlbrnft.gluemeister.utils.ElementUtils;
 import com.google.gson.Gson;
 
 import java.io.BufferedReader;
@@ -12,6 +13,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -52,7 +54,7 @@ class GlueMeisterConfigReader {
             final BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream));
             final String json = reader.lines().collect(Collectors.joining());
             final GlueMeisterConfigFile configFile = mGson.fromJson(json, GlueMeisterConfigFile.class);
-            final List<GlueEntityInfo> entities = parseGlueEntityInfos(configFile);
+            final List<GlueModuleInfo> entities = parseGlueEntityInfos(configFile);
             final List<GlueableInfo> glueables = parseGlueableInfos(configFile);
             return new GlueMeisterConfigImpl(entities, glueables);
         } catch (IOException e) {
@@ -75,8 +77,8 @@ class GlueMeisterConfigReader {
         return glueables;
     }
 
-    private List<GlueEntityInfo> parseGlueEntityInfos(GlueMeisterConfigFile configFile) {
-        final List<GlueEntityInfo> entities = new ArrayList<>();
+    private List<GlueModuleInfo> parseGlueEntityInfos(GlueMeisterConfigFile configFile) {
+        final List<GlueModuleInfo> entities = new ArrayList<>();
         for (GlueEntityConfigEntry configEntry : configFile.getEntityConfigEntries()) {
             try {
                 entities.add(parseGlueEntityConfigEntry(configEntry));
@@ -90,15 +92,17 @@ class GlueMeisterConfigReader {
         return entities;
     }
 
-    private GlueEntityInfo parseGlueEntityConfigEntry(GlueEntityConfigEntry configEntry) {
+    private GlueModuleInfo parseGlueEntityConfigEntry(GlueEntityConfigEntry configEntry) {
         final TypeElement element = mProcessingEnvironment.getElementUtils().getTypeElement(configEntry.getEntityClassName());
         if (element == null) {
             throw new GlueMeisterConfigException("Failed to find class mentioned in config file of some dependency: " + configEntry.getEntityClassName(), null);
         }
-        return new GlueEntityInfoImpl(
+        final List<ExecutableElement> unimplementedMethods = ElementUtils.determineUnimplementedMethods(element);
+        return new GlueModuleInfoImpl(
                 element,
                 configEntry.getFactoryPackageName(),
-                configEntry.getFactoryClassName()
+                configEntry.getFactoryClassName(),
+                unimplementedMethods
         );
     }
 
@@ -181,17 +185,16 @@ class GlueMeisterConfigReader {
 
     private static class GlueMeisterConfigImpl implements GlueMeisterConfig {
 
-        private final List<GlueEntityInfo> mGlueEntityInfos;
+        private final List<GlueModuleInfo> mGlueModuleInfos;
         private final List<GlueableInfo> mGlueableInfos;
 
-        private GlueMeisterConfigImpl(List<GlueEntityInfo> glueEntityInfos, List<GlueableInfo> glueableInfos) {
-            mGlueEntityInfos = glueEntityInfos;
+        private GlueMeisterConfigImpl(List<GlueModuleInfo> glueModuleInfos, List<GlueableInfo> glueableInfos) {
+            mGlueModuleInfos = glueModuleInfos;
             mGlueableInfos = glueableInfos;
         }
 
-        @Override
-        public List<GlueEntityInfo> getGlueEntityInfos() {
-            return mGlueEntityInfos;
+        public List<GlueModuleInfo> getGlueModuleInfos() {
+            return mGlueModuleInfos;
         }
 
         @Override
@@ -200,16 +203,23 @@ class GlueMeisterConfigReader {
         }
     }
 
-    private static class GlueEntityInfoImpl implements GlueEntityInfo {
+    private static class GlueModuleInfoImpl implements GlueModuleInfo {
 
-        private final TypeElement mEntityElement;
         private final String mFactoryPackageName;
         private final String mFactoryName;
+        private final TypeElement mEntityElement;
+        private final List<ExecutableElement> mUnimplementedMethods;
 
-        private GlueEntityInfoImpl(TypeElement entityElement, String factoryPackageName, String factoryName) {
+        private GlueModuleInfoImpl(TypeElement entityElement, String factoryPackageName, String factoryName, List<ExecutableElement> unimplementedMethods) {
             mEntityElement = entityElement;
             mFactoryPackageName = factoryPackageName;
             mFactoryName = factoryName;
+            mUnimplementedMethods = Collections.unmodifiableList(unimplementedMethods);
+        }
+
+        @Override
+        public List<ExecutableElement> getUnimplementedMethods() {
+            return mUnimplementedMethods;
         }
 
         @Override

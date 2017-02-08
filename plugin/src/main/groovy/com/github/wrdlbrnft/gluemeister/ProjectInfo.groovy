@@ -24,9 +24,11 @@ class ProjectInfo {
 
     final String variants;
     final boolean library;
+    final String rootPackageName;
 
     private ProjectInfo(String variants, boolean library) {
         this.variants = variants
         this.library = library
+        this.rootPackageName = rootPackageName
     }
 }

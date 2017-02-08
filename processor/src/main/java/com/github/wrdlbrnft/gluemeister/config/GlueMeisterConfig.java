@@ -1,6 +1,6 @@
 package com.github.wrdlbrnft.gluemeister.config;
 
-import com.github.wrdlbrnft.gluemeister.entities.GlueEntityInfo;
+import com.github.wrdlbrnft.gluemeister.modules.GlueModuleInfo;
 import com.github.wrdlbrnft.gluemeister.glueable.GlueableInfo;
 
 import java.util.List;
@@ -12,5 +12,5 @@ import java.util.List;
  */
 public interface GlueMeisterConfig {
     List<GlueableInfo> getGlueableInfos();
-    List<GlueEntityInfo> getGlueEntityInfos();
+    List<GlueModuleInfo> getGlueModuleInfos();
 }

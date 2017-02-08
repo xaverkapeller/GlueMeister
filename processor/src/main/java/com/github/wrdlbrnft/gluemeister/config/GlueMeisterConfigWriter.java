@@ -44,7 +44,7 @@ class GlueMeisterConfigWriter {
     }
 
     private GlueMeisterConfigFile formatConfig(GlueMeisterConfig config) {
-        final List<GlueEntityConfigEntry> entityConfigEntries = config.getGlueEntityInfos().stream()
+        final List<GlueEntityConfigEntry> entityConfigEntries = config.getGlueModuleInfos().stream()
                 .map(info -> new GlueEntityConfigEntry(
                         info.getEntityElement().getQualifiedName().toString(),
                         info.getFactoryPackageName(),

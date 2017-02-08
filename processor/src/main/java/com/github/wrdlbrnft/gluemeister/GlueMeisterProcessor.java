@@ -3,11 +3,11 @@ package com.github.wrdlbrnft.gluemeister;
 import com.github.wrdlbrnft.codebuilder.code.SourceFile;
 import com.github.wrdlbrnft.gluemeister.config.GlueMeisterConfig;
 import com.github.wrdlbrnft.gluemeister.config.GlueMeisterConfigManager;
-import com.github.wrdlbrnft.gluemeister.entities.GlueEntityAnalyzer;
-import com.github.wrdlbrnft.gluemeister.entities.GlueEntityInfo;
-import com.github.wrdlbrnft.gluemeister.entities.exceptions.GlueEntityFactoryException;
-import com.github.wrdlbrnft.gluemeister.entities.factories.GlueEntityFactoryBuilder;
-import com.github.wrdlbrnft.gluemeister.entities.factories.GlueEntityFactoryInfo;
+import com.github.wrdlbrnft.gluemeister.modules.GlueModuleAnalyzer;
+import com.github.wrdlbrnft.gluemeister.modules.GlueModuleInfo;
+import com.github.wrdlbrnft.gluemeister.modules.exceptions.GlueModuleFactoryException;
+import com.github.wrdlbrnft.gluemeister.modules.factories.GlueModuleFactoryBuilder;
+import com.github.wrdlbrnft.gluemeister.modules.factories.GlueModuleFactoryInfo;
 import com.github.wrdlbrnft.gluemeister.glueable.GlueableAnalyzer;
 import com.github.wrdlbrnft.gluemeister.glueable.GlueableInfo;
 
@@ -37,8 +37,8 @@ import javax.tools.Diagnostic;
 public class GlueMeisterProcessor extends AbstractProcessor {
 
     private GlueableAnalyzer mGlueableAnalyzer;
-    private GlueEntityAnalyzer mGlueEntityAnalyzer;
-    private GlueEntityFactoryBuilder mGlueEntityFactoryBuilder;
+    private GlueModuleAnalyzer mGlueModuleAnalyzer;
+    private GlueModuleFactoryBuilder mGlueModuleFactoryBuilder;
     private GlueMeisterConfigManager mConfigManager;
 
     private int mRound = 0;
@@ -48,8 +48,8 @@ public class GlueMeisterProcessor extends AbstractProcessor {
         super.init(processingEnv);
 
         mGlueableAnalyzer = new GlueableAnalyzer(processingEnv);
-        mGlueEntityAnalyzer = new GlueEntityAnalyzer(processingEnv);
-        mGlueEntityFactoryBuilder = new GlueEntityFactoryBuilder(processingEnv);
+        mGlueModuleAnalyzer = new GlueModuleAnalyzer(processingEnv);
+        mGlueModuleFactoryBuilder = new GlueModuleFactoryBuilder(processingEnv);
         mConfigManager = new GlueMeisterConfigManager(processingEnv);
     }
 
@@ -92,30 +92,30 @@ public class GlueMeisterProcessor extends AbstractProcessor {
     }
 
     private GlueMeisterConfig analyzeCurrentEnvironment(RoundEnvironment roundEnv) {
-        final List<GlueEntityInfo> glueEntityInfos = mGlueEntityAnalyzer.analyze(roundEnv);
+        final List<GlueModuleInfo> glueModuleInfos = mGlueModuleAnalyzer.analyze(roundEnv);
         final List<GlueableInfo> glueableInfos = mGlueableAnalyzer.analyze(roundEnv);
-        return new GlueMeisterConfigImpl(glueEntityInfos, glueableInfos);
+        return new GlueMeisterConfigImpl(glueModuleInfos, glueableInfos);
     }
 
     private void buildGlueMeisterComponents(GlueMeisterConfig currentConfig, GlueMeisterConfig dependencyConfig) {
-        final List<GlueEntityInfo> glueEntityInfos = currentConfig.getGlueEntityInfos();
+        final List<GlueModuleInfo> glueModuleInfos = currentConfig.getGlueModuleInfos();
         final List<GlueableInfo> allGlueables = Stream.of(currentConfig.getGlueableInfos(), dependencyConfig.getGlueableInfos())
                 .flatMap(Collection::stream)
                 .collect(Collectors.toList());
-        for (GlueEntityInfo glueEntityInfo : glueEntityInfos) {
+        for (GlueModuleInfo glueModuleInfo : glueModuleInfos) {
             try {
-                final GlueEntityFactoryInfo entityFactoryInfo = mGlueEntityFactoryBuilder.build(glueEntityInfo, allGlueables);
+                final GlueModuleFactoryInfo entityFactoryInfo = mGlueModuleFactoryBuilder.build(glueModuleInfo, allGlueables);
                 final SourceFile sourceFile = SourceFile.create(processingEnv, entityFactoryInfo.getPackageName());
                 sourceFile.write(entityFactoryInfo.getImplementation());
                 sourceFile.flushAndClose();
-            } catch (GlueEntityFactoryException e) {
+            } catch (GlueModuleFactoryException e) {
                 processingEnv.getMessager().printMessage(
                         Diagnostic.Kind.ERROR,
                         e.getMessage(),
                         e.getElement()
                 );
             } catch (IOException e) {
-                final TypeElement entityElement = glueEntityInfo.getEntityElement();
+                final TypeElement entityElement = glueModuleInfo.getEntityElement();
                 throw new GlueMeisterException("Failed to create factory for GlueEntity " + entityElement.getSimpleName() + ".", entityElement, e);
             }
         }
@@ -124,7 +124,7 @@ public class GlueMeisterProcessor extends AbstractProcessor {
     @Override
     public Set<String> getSupportedAnnotationTypes() {
         final Set<String> annotations = new HashSet<>();
-        annotations.add(GlueEntity.class.getCanonicalName());
+        annotations.add(GlueModule.class.getCanonicalName());
         annotations.add(GlueInject.class.getCanonicalName());
         annotations.add(Glueable.class.getCanonicalName());
         return annotations;
@@ -132,17 +132,16 @@ public class GlueMeisterProcessor extends AbstractProcessor {
 
     private static class GlueMeisterConfigImpl implements GlueMeisterConfig {
 
-        private final List<GlueEntityInfo> mGlueEntityInfos;
+        private final List<GlueModuleInfo> mGlueModuleInfos;
         private final List<GlueableInfo> mGlueableInfos;
 
-        private GlueMeisterConfigImpl(List<GlueEntityInfo> glueEntityInfos, List<GlueableInfo> glueableInfos) {
-            mGlueEntityInfos = glueEntityInfos;
+        private GlueMeisterConfigImpl(List<GlueModuleInfo> glueModuleInfos, List<GlueableInfo> glueableInfos) {
+            mGlueModuleInfos = glueModuleInfos;
             mGlueableInfos = glueableInfos;
         }
 
-        @Override
-        public List<GlueEntityInfo> getGlueEntityInfos() {
-            return mGlueEntityInfos;
+        public List<GlueModuleInfo> getGlueModuleInfos() {
+            return mGlueModuleInfos;
         }
 
         @Override

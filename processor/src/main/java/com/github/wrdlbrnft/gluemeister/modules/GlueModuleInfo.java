@@ -1,5 +1,8 @@
-package com.github.wrdlbrnft.gluemeister.entities;
+package com.github.wrdlbrnft.gluemeister.modules;
 
+import java.util.List;
+
+import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.TypeElement;
 
 /**
@@ -8,7 +11,8 @@ import javax.lang.model.element.TypeElement;
  * Date: 29/01/2017
  */
 
-public interface GlueEntityInfo {
+public interface GlueModuleInfo {
+    List<ExecutableElement> getUnimplementedMethods();
     TypeElement getEntityElement();
     String getFactoryPackageName();
     String getFactoryName();

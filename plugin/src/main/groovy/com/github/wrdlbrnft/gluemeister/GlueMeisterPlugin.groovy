@@ -90,7 +90,7 @@ class GlueMeisterPlugin implements Plugin<Project> {
         }
 
         final jsonBulder = new JsonBuilder();
-        jsonBulder entities: entities, glueables: glueables
+        jsonBulder entities: entities, glueables: glueables, rootPackageName: variant.applicationId
 
         final outputDir = new File(project.buildDir, '/generated/source/apt/' + variant.name + '/com/github/wrdlbrnft/gluemeister')
         outputDir.mkdirs()

@@ -2,13 +2,17 @@ package com.github.wrdlbrnft.gluemeister.utils;
 
 import com.github.wrdlbrnft.gluemeister.GlueMeisterException;
 
+import java.util.List;
 import java.util.Set;
 import java.util.function.BiFunction;
+import java.util.stream.Collectors;
 
 import javax.lang.model.element.Element;
 import javax.lang.model.element.ElementKind;
+import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.Modifier;
 import javax.lang.model.element.PackageElement;
+import javax.lang.model.element.TypeElement;
 
 /**
  * Created with Android Studio<br>
@@ -113,5 +117,13 @@ public class ElementUtils {
         }
 
         return true;
+    }
+
+    public static List<ExecutableElement> determineUnimplementedMethods(TypeElement element) {
+        return element.getEnclosedElements().stream()
+                .filter(e -> e.getKind() == ElementKind.METHOD)
+                .filter(e -> e.getModifiers().contains(Modifier.ABSTRACT))
+                .map(ExecutableElement.class::cast)
+                .collect(Collectors.toList());
     }
 }

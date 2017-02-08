@@ -1,4 +1,4 @@
-package com.github.wrdlbrnft.gluemeister.entities.factories;
+package com.github.wrdlbrnft.gluemeister.modules.factories;
 
 import com.github.wrdlbrnft.codebuilder.implementations.Implementation;
 
@@ -7,7 +7,7 @@ import com.github.wrdlbrnft.codebuilder.implementations.Implementation;
  * User: Xaver<br>
  * Date: 29/01/2017
  */
-public interface GlueEntityFactoryInfo {
+public interface GlueModuleFactoryInfo {
     String getPackageName();
     Implementation getImplementation();
 }
