@@ -7,6 +7,7 @@ import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 
+import javax.annotation.processing.ProcessingEnvironment;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
@@ -119,8 +120,8 @@ public class ElementUtils {
         return true;
     }
 
-    public static List<ExecutableElement> determineUnimplementedMethods(TypeElement element) {
-        return element.getEnclosedElements().stream()
+    public static List<ExecutableElement> determineAbstractMethods(ProcessingEnvironment processingEnv, TypeElement element) {
+        return processingEnv.getElementUtils().getAllMembers(element).stream()
                 .filter(e -> e.getKind() == ElementKind.METHOD)
                 .filter(e -> e.getModifiers().contains(Modifier.ABSTRACT))
                 .map(ExecutableElement.class::cast)

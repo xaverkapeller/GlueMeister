@@ -129,18 +129,12 @@ class GlueMeisterPlugin implements Plugin<Project> {
             def builder = new JsonBuilder();
             builder entities: entities, glueables: glueables
 
-            println '\tExported Entities:'
-            entities.each {
-                println '\t - ' + it.entityClass
-            }
-
             final glueOutputDir = new File(project.buildDir, 'generated/glue/' + variant.name)
             glueOutputDir.mkdirs()
             final glueJson = new File(glueOutputDir, 'glue-meister.json')
             glueJson.withWriter { file -> file.append(builder.toString()) }
         }
 
-        println()
         println '\tGlueMeister is done! Hope you enjoyed the show.'
         println()
     }

@@ -54,7 +54,7 @@ class GlueMeisterConfigWriter {
         final List<GlueableConfigEntry> glueableConfigEntries = config.getGlueableInfos().stream()
                 .map(info -> new GlueableConfigEntry(
                         createIdentifier(info.getElement()),
-                        info.getType(),
+                        info.getKind(),
                         info.getKey()
                 ))
                 .collect(Collectors.toList());

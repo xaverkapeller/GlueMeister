@@ -1,6 +1,6 @@
 package com.github.wrdlbrnft.gluemeister.config;
 
-import com.github.wrdlbrnft.gluemeister.glueable.GlueableType;
+import com.github.wrdlbrnft.gluemeister.glueable.GlueableInfo;
 import com.google.gson.annotations.SerializedName;
 
 /**
@@ -14,14 +14,14 @@ class GlueableConfigEntry {
     private String mIdentifier;
 
     @SerializedName("type")
-    private GlueableType mType;
+    private GlueableInfo.Kind mKind;
 
     @SerializedName("key")
     private String mKey;
 
-    public GlueableConfigEntry(String identifier, GlueableType type, String key) {
+    public GlueableConfigEntry(String identifier, GlueableInfo.Kind kind, String key) {
         mIdentifier = identifier;
-        mType = type;
+        mKind = kind;
         mKey = key;
     }
 
@@ -32,8 +32,8 @@ class GlueableConfigEntry {
         return mIdentifier;
     }
 
-    public GlueableType getType() {
-        return mType;
+    public GlueableInfo.Kind getKind() {
+        return mKind;
     }
 
     public String getKey() {

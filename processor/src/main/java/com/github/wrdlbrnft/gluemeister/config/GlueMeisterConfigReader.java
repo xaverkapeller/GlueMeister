@@ -3,7 +3,6 @@ package com.github.wrdlbrnft.gluemeister.config;
 import com.github.wrdlbrnft.gluemeister.GlueMeisterException;
 import com.github.wrdlbrnft.gluemeister.config.exceptions.GlueMeisterConfigException;
 import com.github.wrdlbrnft.gluemeister.glueable.GlueableInfo;
-import com.github.wrdlbrnft.gluemeister.glueable.GlueableType;
 import com.github.wrdlbrnft.gluemeister.modules.GlueModuleInfo;
 import com.github.wrdlbrnft.gluemeister.utils.ElementUtils;
 import com.google.gson.Gson;
@@ -97,7 +96,7 @@ class GlueMeisterConfigReader {
         if (element == null) {
             throw new GlueMeisterConfigException("Failed to find class mentioned in config file of some dependency: " + configEntry.getEntityClassName(), null);
         }
-        final List<ExecutableElement> unimplementedMethods = ElementUtils.determineUnimplementedMethods(element);
+        final List<ExecutableElement> unimplementedMethods = ElementUtils.determineAbstractMethods(mProcessingEnvironment, element);
         return new GlueModuleInfoImpl(
                 element,
                 configEntry.getFactoryPackageName(),
@@ -107,19 +106,20 @@ class GlueMeisterConfigReader {
     }
 
     private GlueableInfo parseGlueableConfigEntry(GlueableConfigEntry configEntry) {
-        final GlueableType type = configEntry.getType();
+        final GlueableInfo.Kind kind = configEntry.getKind();
         final String identifier = configEntry.getIdentifier();
         return new GlueableInfoImpl(
-                type,
-                findGlueableElement(type, identifier),
+                kind,
+                findGlueableElement(kind, identifier),
                 configEntry.getKey()
         );
     }
 
-    private Element findGlueableElement(GlueableType type, String identifier) {
-        switch (type) {
+    private Element findGlueableElement(GlueableInfo.Kind kind, String identifier) {
+        switch (kind) {
 
             case STATIC_METHOD:
+            case INSTANCE_METHOD:
                 return findMethod(identifier);
 
             case STATIC_FIELD:
@@ -131,7 +131,7 @@ class GlueMeisterConfigReader {
                 return findType(identifier);
 
             default:
-                throw new GlueMeisterException("Encountered unknown GlueableType: " + type, null);
+                throw new GlueMeisterException("Encountered unknown GlueableType: " + kind, null);
         }
     }
 
@@ -240,19 +240,18 @@ class GlueMeisterConfigReader {
 
     private static class GlueableInfoImpl implements GlueableInfo {
 
-        private final GlueableType mType;
+        private final Kind mKind;
         private final Element mElement;
         private final String mKey;
 
-        private GlueableInfoImpl(GlueableType type, Element element, String key) {
-            mType = type;
+        private GlueableInfoImpl(Kind kind, Element element, String key) {
+            mKind = kind;
             mElement = element;
             mKey = key;
         }
 
-        @Override
-        public GlueableType getType() {
-            return mType;
+        public Kind getKind() {
+            return mKind;
         }
 
         @Override

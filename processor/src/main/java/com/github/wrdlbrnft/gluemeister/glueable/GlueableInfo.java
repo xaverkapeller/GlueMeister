@@ -10,7 +10,16 @@ import javax.lang.model.element.Element;
 
 public interface GlueableInfo {
 
-    GlueableType getType();
+    enum Kind {
+        INSTANCE_METHOD,
+        STATIC_METHOD,
+        STATIC_FIELD,
+        INTERFACE,
+        ABSTRACT_CLASS,
+        CLASS
+    }
+
+    Kind getKind();
     Element getElement();
     String getKey();
 }

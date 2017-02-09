@@ -16,6 +16,7 @@ import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.VariableElement;
 import javax.tools.Diagnostic;
 
+import static com.github.wrdlbrnft.gluemeister.utils.ElementUtils.isStatic;
 import static com.github.wrdlbrnft.gluemeister.utils.ElementUtils.verifyAccessibility;
 import static com.github.wrdlbrnft.gluemeister.utils.ElementUtils.verifyFinalModifier;
 import static com.github.wrdlbrnft.gluemeister.utils.ElementUtils.verifyStaticModifier;
@@ -84,8 +85,8 @@ public class GlueableAnalyzer {
         verifyAccessibility(classElement, GlueableAnalyzerException::new);
         return new GlueableInfoImpl(
                 classElement.getModifiers().contains(Modifier.ABSTRACT)
-                        ? GlueableType.ABSTRACT_CLASS
-                        : GlueableType.CLASS,
+                        ? GlueableInfo.Kind.ABSTRACT_CLASS
+                        : GlueableInfo.Kind.CLASS,
                 classElement,
                 parseKey(classElement)
         );
@@ -103,7 +104,7 @@ public class GlueableAnalyzer {
         verifyStaticModifier(interfaceElement, GlueableAnalyzerException::new);
         verifyAccessibility(interfaceElement, GlueableAnalyzerException::new);
         return new GlueableInfoImpl(
-                GlueableType.INTERFACE,
+                GlueableInfo.Kind.INTERFACE,
                 interfaceElement,
                 parseKey(interfaceElement)
         );
@@ -114,17 +115,16 @@ public class GlueableAnalyzer {
         verifyFinalModifier(fieldElement, GlueableAnalyzerException::new);
         verifyAccessibility(fieldElement, GlueableAnalyzerException::new);
         return new GlueableInfoImpl(
-                GlueableType.STATIC_FIELD,
+                GlueableInfo.Kind.STATIC_FIELD,
                 fieldElement,
                 parseKey(fieldElement)
         );
     }
 
     private GlueableInfo analyzeMethod(ExecutableElement methodElement) {
-        verifyStaticModifier(methodElement, GlueableAnalyzerException::new);
         verifyAccessibility(methodElement, GlueableAnalyzerException::new);
         return new GlueableInfoImpl(
-                GlueableType.STATIC_METHOD,
+                isStatic(methodElement) ? GlueableInfo.Kind.STATIC_METHOD : GlueableInfo.Kind.INSTANCE_METHOD,
                 methodElement,
                 parseKey(methodElement)
         );
@@ -132,19 +132,18 @@ public class GlueableAnalyzer {
 
     private static class GlueableInfoImpl implements GlueableInfo {
 
-        private final GlueableType mType;
+        private final Kind mKind;
         private final Element mElement;
         private final String mKey;
 
-        private GlueableInfoImpl(GlueableType type, Element element, String key) {
-            mType = type;
+        private GlueableInfoImpl(Kind kind, Element element, String key) {
+            mKind = kind;
             mElement = element;
             mKey = key;
         }
 
-        @Override
-        public GlueableType getType() {
-            return mType;
+        public Kind getKind() {
+            return mKind;
         }
 
         @Override

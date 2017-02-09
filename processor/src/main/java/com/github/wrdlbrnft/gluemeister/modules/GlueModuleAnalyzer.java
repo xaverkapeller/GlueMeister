@@ -17,7 +17,7 @@ import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
 import javax.tools.Diagnostic;
 
-import static com.github.wrdlbrnft.gluemeister.utils.ElementUtils.determineUnimplementedMethods;
+import static com.github.wrdlbrnft.gluemeister.utils.ElementUtils.determineAbstractMethods;
 import static com.github.wrdlbrnft.gluemeister.utils.ElementUtils.findContainingPackageName;
 import static com.github.wrdlbrnft.gluemeister.utils.ElementUtils.verifyAccessibility;
 import static com.github.wrdlbrnft.gluemeister.utils.ElementUtils.verifyStaticModifier;
@@ -60,7 +60,7 @@ public class GlueModuleAnalyzer {
     private GlueModuleInfo analyzeEntity(TypeElement element) {
         verifyStaticModifier(element, GlueModuleAnalyzerException::new);
         verifyAccessibility(element, GlueModuleAnalyzerException::new);
-        final List<ExecutableElement> unimplementedMethods = determineUnimplementedMethods(element);
+        final List<ExecutableElement> unimplementedMethods = determineAbstractMethods(mProcessingEnvironment, element);
         for (ExecutableElement unimplementedMethod : unimplementedMethods) {
             if (!unimplementedMethod.getParameters().isEmpty()) {
                 throw new GlueModuleAnalyzerException("The method " + unimplementedMethod.getSimpleName() + " of GlueModule " + element.getSimpleName() + " has a parameter. Abstract methods in a GlueModule are not allowed to have parameters (yet).", unimplementedMethod);
