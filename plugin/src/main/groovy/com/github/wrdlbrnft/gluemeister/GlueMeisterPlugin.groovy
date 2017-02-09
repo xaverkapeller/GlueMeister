@@ -21,14 +21,14 @@ class GlueMeisterPlugin implements Plugin<Project> {
     @Override
     void apply(Project project) {
         
-        project.dependencies {
-            provided 'com.github.wrdlbrnft:glue-meister-api:' + BuildConfig.VERSION
-            annotationProcessor 'com.github.wrdlbrnft:glue-meister-processor:' + BuildConfig.VERSION
-        }
-        
         project.afterEvaluate {
             
             final projectInfo = ProjectInfo.analyzeProject(project)
+            
+            project.dependencies {
+                provided 'com.github.wrdlbrnft:glue-meister-api:' + BuildConfig.VERSION
+                annotationProcessor 'com.github.wrdlbrnft:glue-meister-processor:' + BuildConfig.VERSION
+            }
             
             project.android[projectInfo.variants].all { variant ->
 
