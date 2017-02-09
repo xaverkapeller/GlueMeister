@@ -20,16 +20,16 @@ class GlueMeisterPlugin implements Plugin<Project> {
     @SuppressWarnings("GroovyAssignabilityCheck")
     @Override
     void apply(Project project) {
-
-        final projectInfo = ProjectInfo.analyzeProject(project)
-
+        
         project.dependencies {
             provided 'com.github.wrdlbrnft:glue-meister-api:' + BuildConfig.VERSION
             annotationProcessor 'com.github.wrdlbrnft:glue-meister-processor:' + BuildConfig.VERSION
         }
-
+        
         project.afterEvaluate {
-
+            
+            final projectInfo = ProjectInfo.analyzeProject(project)
+            
             project.android[projectInfo.variants].all { variant ->
 
                 if (projectInfo.library) {
