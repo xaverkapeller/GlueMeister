@@ -319,11 +319,11 @@ class ClassResolver {
                     }
 
                     if (aToB) {
-                        return -1;
+                        return 1;
                     }
 
                     if (bToA) {
-                        return 1;
+                        return -1;
                     }
 
                     return 0;
