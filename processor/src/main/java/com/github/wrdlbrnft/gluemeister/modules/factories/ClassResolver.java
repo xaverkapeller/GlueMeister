@@ -192,8 +192,22 @@ class ClassResolver {
         }
 
         final Element returnTypeElement = mProcessingEnvironment.getTypeUtils().asElement(executableType.getReturnType());
-        final GlueableInfo glueableInfo = findGlueableForElement(returnTypeElement, glueables);
-        return resolveGlueableCodeElement(glueableInfo, glueables, isFactory);
+        final List<GlueableInfo> matchingGlueables = findAllGlueablesForElement(returnTypeElement, glueables);
+        for (GlueableInfo glueableInfo : matchingGlueables) {
+            try {
+                return resolveGlueableCodeElement(glueableInfo, glueables, isFactory);
+            } catch (GlueModuleConstructorNotSatisfiedException e) {
+                mProcessingEnvironment.getMessager().printMessage(
+                        Diagnostic.Kind.NOTE,
+                        e.getMessage(),
+                        e.getElement()
+                );
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+
+        throw new GlueModuleConstructorNotSatisfiedException("Return type of method " + method + " cannot be injected by GlueMeister. Make sure there is an @Glueable component which can be used to satisfy it.", method);
     }
 
     private List<Constructor> createConstructorsForSubclass(TypeElement classElement) {
@@ -264,8 +278,24 @@ class ClassResolver {
 
             try {
                 return constructor.getParameters().stream()
-                        .map(parameter -> findGlueableForElement(parameter, glueables))
-                        .map(info -> resolveGlueableCodeElement(info, glueables, false))
+                        .map(parameter -> {
+                            final List<GlueableInfo> matchingGlueables = findAllGlueablesForElement(parameter, glueables);
+                            for (GlueableInfo matchingGlueable : matchingGlueables) {
+                                try {
+                                    return resolveGlueableCodeElement(matchingGlueable, glueables, false);
+                                } catch (GlueModuleConstructorNotSatisfiedException e) {
+                                    mProcessingEnvironment.getMessager().printMessage(
+                                            Diagnostic.Kind.NOTE,
+                                            e.getMessage(),
+                                            e.getElement()
+                                    );
+                                } catch (Exception e) {
+                                    e.printStackTrace();
+                                }
+                            }
+
+                            throw new GlueModuleConstructorNotSatisfiedException("Parameter " + parameter.getSimpleName() + " cannot be injected by GlueMeister. Make sure there is an @Glueable component which can be used to satisfy it.", parameter);
+                        })
                         .toArray(CodeElement[]::new);
             } catch (GlueModuleConstructorNotSatisfiedException e) {
                 mProcessingEnvironment.getMessager().printMessage(
@@ -277,58 +307,6 @@ class ClassResolver {
         }
 
         throw new GlueModuleFactoryException("GlueMeister cannot create instances of " + entityElement.getSimpleName() + " because there is no constructor whose parameters can be satisfied. Look at the previous warnings to figure out why.", entityElement);
-    }
-
-    private GlueableInfo findGlueableForElement(Element parameter, List<GlueableInfo> glueables) {
-        final GlueInject glueInject = parameter.getAnnotation(GlueInject.class);
-        if (glueInject != null) {
-            final String key = glueInject.value();
-            if (!key.trim().isEmpty()) {
-                return glueables.stream()
-                        .filter(info -> key.equals(info.getKey()))
-                        .findAny().orElseThrow(() -> new GlueModuleConstructorNotSatisfiedException("Parameter " + parameter.getSimpleName() + " cannot be injected by GlueMeister. No component annotated with @Glueable matches the key \"" + key + "\". Make sure there is an @Glueable component which can be used to satisfy it.", parameter));
-            }
-        }
-
-        final TypeMirror parameterTypeMirror = parameter.asType();
-        return glueables.stream()
-                .filter(info -> {
-                    final Element element = info.getElement();
-                    final TypeMirror glueableTypeMirror = element.getKind() == ElementKind.METHOD
-                            ? ((ExecutableElement) element).getReturnType()
-                            : element.asType();
-                    return isAssignable(glueableTypeMirror, parameterTypeMirror);
-                })
-                .sorted((a, b) -> {
-                    
-                    final Element aElement = a.getElement();
-                    final TypeMirror aType = aElement.getKind() == ElementKind.METHOD
-                            ? ((ExecutableElement) aElement).getReturnType()
-                            : aElement.asType();
-                    
-                    final Element bElement = b.getElement();
-                    final TypeMirror bType = bElement.getKind() == ElementKind.METHOD
-                            ? ((ExecutableElement) bElement).getReturnType()
-                            : bElement.asType();
-
-                    final boolean aToB = isAssignable(aType, bType);
-                    final boolean bToA = isAssignable(bType, aType);
-
-                    if (aToB && bToA) {
-                        return 0;
-                    }
-
-                    if (aToB) {
-                        return -1;
-                    }
-
-                    if (bToA) {
-                        return 1;
-                    }
-
-                    return 0;
-                })
-                .findFirst().orElseThrow(() -> new GlueModuleConstructorNotSatisfiedException("Parameter " + parameter.getSimpleName() + " cannot be injected by GlueMeister. Make sure there is an @Glueable component which can be used to satisfy it.", parameter));
     }
 
     private List<GlueableInfo> findAllGlueablesForElement(Element parameter, List<GlueableInfo> glueables) {
