@@ -306,7 +306,7 @@ class ClassResolver {
                             ? ((ExecutableElement) aElement).getReturnType()
                             : aElement.asType();
                     
-                    final Element bElement = a.getElement();
+                    final Element bElement = b.getElement();
                     final TypeMirror bType = bElement.getKind() == ElementKind.METHOD
                             ? ((ExecutableElement) bElement).getReturnType()
                             : bElement.asType();
