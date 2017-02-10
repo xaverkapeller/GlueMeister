@@ -5,6 +5,7 @@ import com.github.wrdlbrnft.codebuilder.code.CodeElement;
 import com.github.wrdlbrnft.codebuilder.executables.ExecutableBuilder;
 import com.github.wrdlbrnft.codebuilder.executables.Method;
 import com.github.wrdlbrnft.codebuilder.implementations.Implementation;
+import com.github.wrdlbrnft.codebuilder.variables.Field;
 import com.github.wrdlbrnft.codebuilder.variables.Variable;
 import com.github.wrdlbrnft.gluemeister.glueable.GlueableInfo;
 import com.github.wrdlbrnft.gluemeister.modules.GlueModuleInfo;
@@ -21,6 +22,7 @@ import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.Modifier;
 import javax.lang.model.element.PackageElement;
 import javax.lang.model.element.TypeElement;
+import javax.lang.model.type.TypeMirror;
 
 /**
  * Created with Android Studio<br>

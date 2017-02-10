@@ -10,9 +10,12 @@ import com.github.wrdlbrnft.codebuilder.executables.Methods;
 import com.github.wrdlbrnft.codebuilder.implementations.Implementation;
 import com.github.wrdlbrnft.codebuilder.types.Type;
 import com.github.wrdlbrnft.codebuilder.types.Types;
+import com.github.wrdlbrnft.codebuilder.util.Utils;
 import com.github.wrdlbrnft.codebuilder.variables.Field;
 import com.github.wrdlbrnft.codebuilder.variables.Variable;
 import com.github.wrdlbrnft.codebuilder.variables.Variables;
+import com.github.wrdlbrnft.gluemeister.GlueCollect;
+import com.github.wrdlbrnft.gluemeister.GlueFactory;
 import com.github.wrdlbrnft.gluemeister.GlueInject;
 import com.github.wrdlbrnft.gluemeister.GlueMeisterException;
 import com.github.wrdlbrnft.gluemeister.glueable.GlueableInfo;
@@ -20,6 +23,8 @@ import com.github.wrdlbrnft.gluemeister.modules.exceptions.GlueModuleConstructor
 import com.github.wrdlbrnft.gluemeister.modules.exceptions.GlueModuleFactoryException;
 import com.github.wrdlbrnft.gluemeister.utils.ElementUtils;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
@@ -38,28 +43,42 @@ import javax.lang.model.element.TypeParameterElement;
 import javax.lang.model.element.VariableElement;
 import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.ExecutableType;
+import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
 import javax.tools.Diagnostic;
 
 class ClassResolver {
 
+    private static final Type TYPE_ARRAYS = Types.of("java.util", "Arrays");
+    private static final Method METHOD_AS_LIST = Methods.stub("asList");
+    private static final Method METHOD_EMPTY_LIST = Methods.stub("emptyList");
+
     private final Map<GlueableInfo, CodeElement> mResolvedElementsMap;
 
-    private final Map<String, GlueableInfo> mTypeParameterMap = new HashMap<String, GlueableInfo>();
-    private final List<FieldInfo> mFields;
+    private final Map<String, GlueableInfo> mTypeParameterMap = new HashMap<>();
+
+    private final List<FieldInfo> mNestedClassFields = new ArrayList<>();
+    private Implementation.Builder mNestedClassBuilder;
+
+    private final List<FieldInfo> mFactoryFields;
 
     private final ProcessingEnvironment mProcessingEnvironment;
-    private final Implementation.Builder mBuilder;
+    private final Implementation.Builder mFactoryBuilder;
 
     private final TypeElement mClassElement;
+
+    private final TypeElement mListTypeElement;
+
     private DeclaredType mDeclaredType;
 
-    ClassResolver(ProcessingEnvironment processingEnvironment, Map<GlueableInfo, CodeElement> resolvedElementsMap, List<FieldInfo> fields, Implementation.Builder builder, TypeElement classElement) {
+
+    ClassResolver(ProcessingEnvironment processingEnvironment, Map<GlueableInfo, CodeElement> resolvedElementsMap, List<FieldInfo> factoryFields, Implementation.Builder factoryBuilder, TypeElement classElement) {
         mResolvedElementsMap = resolvedElementsMap;
         mProcessingEnvironment = processingEnvironment;
-        mFields = fields;
-        mBuilder = builder;
+        mFactoryFields = factoryFields;
+        mFactoryBuilder = factoryBuilder;
         mClassElement = classElement;
+        mListTypeElement = mProcessingEnvironment.getElementUtils().getTypeElement("java.util.List");
     }
 
     ResolveResult resolveClass(List<GlueableInfo> glueables) {
@@ -80,33 +99,37 @@ class ClassResolver {
                 : Types.generic(Types.of(mClassElement), resolveTypeParameters(typeParameters));
 
         if (abstractMethods.isEmpty()) {
-            return new ResolveResultImpl(classType, mClassElement.asType(), classType.newInstance(resolveTypeConstructorParameters(mClassElement, glueables)));
+            return new ResolveResultImpl(
+                    Types.of(mDeclaredType),
+                    mDeclaredType,
+                    classType.newInstance(resolveTypeConstructorParameters(mClassElement, glueables))
+            );
         }
 
         return resolveAbstractClass(mClassElement, glueables, abstractMethods, classType);
     }
 
     private ResolveResult resolveAbstractClass(TypeElement classElement, List<GlueableInfo> glueables, List<ExecutableElement> abstractMethods, Type classType) {
-        final Implementation.Builder resolvedClassBuilder = new Implementation.Builder();
-        resolvedClassBuilder.setModifiers(EnumSet.of(Modifier.PRIVATE, Modifier.STATIC));
+        mNestedClassBuilder = new Implementation.Builder();
+        mNestedClassBuilder.setModifiers(EnumSet.of(Modifier.PRIVATE, Modifier.STATIC));
         if (classElement.getKind() == ElementKind.INTERFACE) {
-            resolvedClassBuilder.addImplementedType(classType);
+            mNestedClassBuilder.addImplementedType(classType);
         } else if (classElement.getKind() == ElementKind.CLASS) {
-            resolvedClassBuilder.setExtendedType(classType);
+            mNestedClassBuilder.setExtendedType(classType);
 
             final List<Constructor> constructors = createConstructorsForSubclass(classElement);
-            constructors.forEach(resolvedClassBuilder::addConstructor);
+            constructors.forEach(mNestedClassBuilder::addConstructor);
         }
 
         final List<Method> missingMethods = implementAbstractMethods(abstractMethods, glueables);
-        missingMethods.forEach(resolvedClassBuilder::addMethod);
+        missingMethods.forEach(mNestedClassBuilder::addMethod);
 
-        final Implementation implementation = resolvedClassBuilder.build();
-        mBuilder.addNestedImplementation(implementation);
+        final Implementation implementation = mNestedClassBuilder.build();
+        mFactoryBuilder.addNestedImplementation(implementation);
 
         return new ResolveResultImpl(
-                implementation,
-                classElement.asType(),
+                Types.of(mDeclaredType),
+                mDeclaredType,
                 implementation.newInstance(resolveTypeConstructorParameters(classElement, glueables))
         );
     }
@@ -115,9 +138,7 @@ class ClassResolver {
         return abstractMethods.stream()
                 .map(method -> {
                     final ExecutableType executableType = (ExecutableType) mProcessingEnvironment.getTypeUtils().asMemberOf(mDeclaredType, method);
-                    final Element returnTypeElement = mProcessingEnvironment.getTypeUtils().asElement(executableType.getReturnType());
-                    final GlueableInfo glueableInfo = findGlueableForElement(returnTypeElement, glueables);
-                    final CodeElement resolvedMethodValue = resolveGlueableCodeElement(glueableInfo, glueables);
+                    final CodeElement resolvedMethodValue = resolveMethodReturnValue(glueables, method, executableType);
 
                     return new Method.Builder()
                             .setName(method.getSimpleName().toString())
@@ -140,6 +161,39 @@ class ClassResolver {
                             .build();
                 })
                 .collect(Collectors.toList());
+    }
+
+    private CodeElement resolveMethodReturnValue(List<GlueableInfo> glueables, ExecutableElement method, ExecutableType executableType) {
+        final GlueCollect glueCollectAnnotation = method.getAnnotation(GlueCollect.class);
+        final GlueFactory glueFactoryAnnotation = method.getAnnotation(GlueFactory.class);
+        final boolean isFactory = glueFactoryAnnotation != null;
+        if (glueCollectAnnotation != null) {
+            final TypeMirror returnType = executableType.getReturnType();
+            final TypeMirror erasedReturnType = mProcessingEnvironment.getTypeUtils().erasure(returnType);
+            if (!mProcessingEnvironment.getTypeUtils().isAssignable(erasedReturnType, mListTypeElement.asType())) {
+                throw new GlueModuleFactoryException("You can use GlueCollect only on methods which return a List! " + method + " does not.", method);
+            }
+
+            final List<TypeMirror> typeParameters = Utils.getTypeParameters(returnType);
+            System.out.println("LOL: " + typeParameters);
+            final TypeElement typeParameterElement = (TypeElement) mProcessingEnvironment.getTypeUtils().asElement(typeParameters.get(0));
+            final List<GlueableInfo> matchingGlueables = findAllGlueablesForElement(typeParameterElement, glueables);
+            System.out.println("LEL: " + matchingGlueables);
+
+            if (matchingGlueables.isEmpty()) {
+                return METHOD_EMPTY_LIST.callOnTarget(Types.COLLECTIONS);
+            }
+
+            final CodeElement[] resolvedGlueables = matchingGlueables.stream()
+                    .map(info -> resolveGlueableCodeElement(info, glueables, isFactory))
+                    .toArray(CodeElement[]::new);
+            System.out.println("LIL: " + Arrays.toString(resolvedGlueables));
+            return METHOD_AS_LIST.callOnTarget(TYPE_ARRAYS, resolvedGlueables);
+        }
+
+        final Element returnTypeElement = mProcessingEnvironment.getTypeUtils().asElement(executableType.getReturnType());
+        final GlueableInfo glueableInfo = findGlueableForElement(returnTypeElement, glueables);
+        return resolveGlueableCodeElement(glueableInfo, glueables, isFactory);
     }
 
     private List<Constructor> createConstructorsForSubclass(TypeElement classElement) {
@@ -211,7 +265,7 @@ class ClassResolver {
             try {
                 return constructor.getParameters().stream()
                         .map(parameter -> findGlueableForElement(parameter, glueables))
-                        .map(info -> resolveGlueableCodeElement(info, glueables))
+                        .map(info -> resolveGlueableCodeElement(info, glueables, false))
                         .toArray(CodeElement[]::new);
             } catch (GlueModuleConstructorNotSatisfiedException e) {
                 mProcessingEnvironment.getMessager().printMessage(
@@ -248,17 +302,42 @@ class ClassResolver {
                 .findAny().orElseThrow(() -> new GlueModuleConstructorNotSatisfiedException("Parameter " + parameter.getSimpleName() + " cannot be injected by GlueMeister. Make sure there is an @Glueable component which can be used to satisfy it.", parameter));
     }
 
-    private CodeElement resolveGlueableCodeElement(GlueableInfo glueableInfo, List<GlueableInfo> glueables) {
+    private List<GlueableInfo> findAllGlueablesForElement(Element parameter, List<GlueableInfo> glueables) {
+        final GlueInject glueInject = parameter.getAnnotation(GlueInject.class);
+        if (glueInject != null) {
+            final String key = glueInject.value();
+            if (!key.trim().isEmpty()) {
+                return glueables.stream()
+                        .filter(info -> key.equals(info.getKey()))
+                        .collect(Collectors.toList());
+            }
+        }
+
+        final TypeMirror parameterTypeMirror = parameter.asType();
+        System.out.println("KEK: " + parameterTypeMirror);
+        return glueables.stream()
+                .filter(info -> {
+                    final Element element = info.getElement();
+                    final TypeMirror glueableTypeMirror = element.getKind() == ElementKind.METHOD
+                            ? ((ExecutableElement) element).getReturnType()
+                            : element.asType();
+                    System.out.println("TOP: " + glueableTypeMirror);
+                    return isAssignable(glueableTypeMirror, parameterTypeMirror);
+                })
+                .collect(Collectors.toList());
+    }
+
+    private CodeElement resolveGlueableCodeElement(GlueableInfo glueableInfo, List<GlueableInfo> glueables, boolean factory) {
         if (mResolvedElementsMap.containsKey(glueableInfo)) {
             return mResolvedElementsMap.get(glueableInfo);
         }
 
-        final CodeElement codeElement = translateGlueableInfoToCodeElement(glueableInfo, glueables);
+        final CodeElement codeElement = translateGlueableInfoToCodeElement(glueableInfo, glueables, factory);
         mResolvedElementsMap.put(glueableInfo, codeElement);
         return codeElement;
     }
 
-    private CodeElement translateGlueableInfoToCodeElement(GlueableInfo glueableInfo, List<GlueableInfo> glueables) {
+    private CodeElement translateGlueableInfoToCodeElement(GlueableInfo glueableInfo, List<GlueableInfo> glueables, boolean factory) {
         switch (glueableInfo.getKind()) {
 
             case STATIC_FIELD:
@@ -269,8 +348,13 @@ class ClassResolver {
             case ABSTRACT_CLASS:
             case INTERFACE:
                 final TypeElement classElement = (TypeElement) glueableInfo.getElement();
-                return getFieldFor(classElement.asType(), () -> {
-                    final ClassResolver subClassResolver = new ClassResolver(mProcessingEnvironment, mResolvedElementsMap, mFields, mBuilder, classElement);
+                if (factory) {
+                    final ClassResolver subClassResolver = new ClassResolver(mProcessingEnvironment, mResolvedElementsMap, mFactoryFields, mFactoryBuilder, classElement);
+                    final ResolveResult resolvedClass = subClassResolver.resolveClass(glueables);
+                    return resolvedClass.getValue();
+                }
+                return getFieldInFactoryFor(classElement.asType(), () -> {
+                    final ClassResolver subClassResolver = new ClassResolver(mProcessingEnvironment, mResolvedElementsMap, mFactoryFields, mFactoryBuilder, classElement);
                     final ResolveResult resolvedClass = subClassResolver.resolveClass(glueables);
                     return new Field.Builder()
                             .setModifiers(EnumSet.of(Modifier.PRIVATE, Modifier.STATIC, Modifier.FINAL))
@@ -281,7 +365,7 @@ class ClassResolver {
 
             case INSTANCE_METHOD:
                 final ExecutableElement instanceMethodElement = (ExecutableElement) glueableInfo.getElement();
-                return resolveInstanceMethod(instanceMethodElement, glueables);
+                return resolveInstanceMethod(instanceMethodElement, glueables, factory);
 
             case STATIC_METHOD:
                 throw new GlueModuleConstructorNotSatisfiedException("Injecting this component is not yet supported. Look for an update!", glueableInfo.getElement());
@@ -291,39 +375,63 @@ class ClassResolver {
         }
     }
 
-    private Field getFieldFor(TypeMirror typeMirror, Supplier<Field> fieldSupplier) {
-        for (FieldInfo field : mFields) {
+    private Field getFieldInFactoryFor(TypeMirror typeMirror, Supplier<Field> fieldSupplier) {
+        for (FieldInfo field : mFactoryFields) {
             final TypeMirror fieldType = field.getTypeMirror();
             if (isAssignable(typeMirror, fieldType)) {
                 return field.getField();
             }
         }
         final Field field = fieldSupplier.get();
-        mBuilder.addField(field);
-        mFields.add(new FieldInfo() {
-            @Override
-            public TypeMirror getTypeMirror() {
-                return typeMirror;
-            }
-
-            @Override
-            public Field getField() {
-                return field;
-            }
-        });
+        mFactoryBuilder.addField(field);
+        mFactoryFields.add(new FieldInfoImpl(typeMirror, field));
         return field;
     }
 
-    private CodeElement resolveInstanceMethod(ExecutableElement methodElement, List<GlueableInfo> glueables) {
-        final TypeElement parent = (TypeElement) methodElement.getEnclosingElement();
-        final ClassResolver parentResolver = new ClassResolver(mProcessingEnvironment, mResolvedElementsMap, mFields, mBuilder, parent);
+    private Field getFieldInNestedClassFor(TypeMirror typeMirror, Supplier<Field> fieldSupplier) {
+        for (FieldInfo field : mNestedClassFields) {
+            final TypeMirror fieldType = field.getTypeMirror();
+            if (isAssignable(typeMirror, fieldType)) {
+                return field.getField();
+            }
+        }
+        final Field field = fieldSupplier.get();
+        mNestedClassBuilder.addField(field);
+        mNestedClassFields.add(new FieldInfoImpl(typeMirror, field));
+        return field;
+    }
+
+    private CodeElement resolveInstanceMethod(ExecutableElement method, List<GlueableInfo> glueables, boolean factory) {
+        final TypeElement parent = (TypeElement) method.getEnclosingElement();
+        final ClassResolver parentResolver = new ClassResolver(mProcessingEnvironment, mResolvedElementsMap, mFactoryFields, mFactoryBuilder, parent);
         final ResolveResult result = parentResolver.resolveClass(glueables);
-        final Field field = getFieldFor(result.getBaseTypeMirror(), () -> new Field.Builder()
+        final Field parentField = getFieldInFactoryFor(result.getBaseType(), () -> new Field.Builder()
                 .setModifiers(EnumSet.of(Modifier.PRIVATE, Modifier.STATIC, Modifier.FINAL))
                 .setType(result.getType())
                 .setInitialValue(result.getValue())
                 .build());
-        return Methods.call(methodElement, field);
+
+        final TypeMirror returnType = resolveReturnType(method);
+        final CodeElement resultElement = Methods.call(method, parentField);
+        if (factory) {
+            return resultElement;
+        }
+
+        return getFieldInNestedClassFor(returnType, () -> new Field.Builder()
+                .setModifiers(EnumSet.of(Modifier.PRIVATE, Modifier.FINAL))
+                .setType(Types.of(returnType))
+                .setInitialValue(resultElement)
+                .build());
+    }
+
+    private TypeMirror resolveReturnType(ExecutableElement method) {
+
+        if (method.getReturnType().getKind() == TypeKind.TYPEVAR) {
+            final ExecutableType executableType = (ExecutableType) mProcessingEnvironment.getTypeUtils().asMemberOf(mDeclaredType, method);
+            return executableType.getReturnType();
+        }
+
+        return method.getReturnType();
     }
 
     private CodeElement resolveField(VariableElement fieldElement) {
@@ -380,12 +488,12 @@ class ClassResolver {
     private static class ResolveResultImpl implements ResolveResult {
 
         private final Type mType;
-        private final TypeMirror mBaseTypeMirror;
+        private final DeclaredType mBaseType;
         private final CodeElement mValue;
 
-        private ResolveResultImpl(Type type, TypeMirror baseTypeMirror, CodeElement value) {
+        private ResolveResultImpl(Type type, DeclaredType baseType, CodeElement value) {
             mType = type;
-            mBaseTypeMirror = baseTypeMirror;
+            mBaseType = baseType;
             mValue = value;
         }
 
@@ -394,14 +502,34 @@ class ClassResolver {
             return mType;
         }
 
-        @Override
-        public TypeMirror getBaseTypeMirror() {
-            return mBaseTypeMirror;
+        public DeclaredType getBaseType() {
+            return mBaseType;
         }
 
         @Override
         public CodeElement getValue() {
             return mValue;
+        }
+    }
+
+    private static class FieldInfoImpl implements FieldInfo {
+
+        private final TypeMirror mTypeMirror;
+        private final Field mField;
+
+        private FieldInfoImpl(TypeMirror typeMirror, Field field) {
+            mTypeMirror = typeMirror;
+            mField = field;
+        }
+
+        @Override
+        public TypeMirror getTypeMirror() {
+            return mTypeMirror;
+        }
+
+        @Override
+        public Field getField() {
+            return mField;
         }
     }
 }
