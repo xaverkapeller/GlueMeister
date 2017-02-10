@@ -203,7 +203,11 @@ class ClassResolver {
                         e.getElement()
                 );
             } catch (Exception e) {
-                e.printStackTrace();
+                mProcessingEnvironment.getMessager().printMessage(
+                        Diagnostic.Kind.NOTE,
+                        "Ran into this issue while following a resolution path: " + e.getMessage(),
+                        null
+                );
             }
         }
 
@@ -290,7 +294,11 @@ class ClassResolver {
                                             e.getElement()
                                     );
                                 } catch (Exception e) {
-                                    e.printStackTrace();
+                                    mProcessingEnvironment.getMessager().printMessage(
+                                            Diagnostic.Kind.NOTE,
+                                            "Ran into this issue while following a resolution path: " + e.getMessage(),
+                                            null
+                                    );
                                 }
                             }
 
