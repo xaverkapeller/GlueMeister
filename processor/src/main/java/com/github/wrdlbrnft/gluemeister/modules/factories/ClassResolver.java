@@ -300,10 +300,12 @@ class ClassResolver {
                     return isAssignable(glueableTypeMirror, parameterTypeMirror);
                 })
                 .sorted((a, b) -> {
+                    
                     final Element aElement = a.getElement();
                     final TypeMirror aType = aElement.getKind() == ElementKind.METHOD
                             ? ((ExecutableElement) aElement).getReturnType()
                             : aElement.asType();
+                    
                     final Element bElement = a.getElement();
                     final TypeMirror bType = bElement.getKind() == ElementKind.METHOD
                             ? ((ExecutableElement) bElement).getReturnType()
@@ -326,7 +328,7 @@ class ClassResolver {
 
                     return 0;
                 })
-                .findAny().orElseThrow(() -> new GlueModuleConstructorNotSatisfiedException("Parameter " + parameter.getSimpleName() + " cannot be injected by GlueMeister. Make sure there is an @Glueable component which can be used to satisfy it.", parameter));
+                .findFirst().orElseThrow(() -> new GlueModuleConstructorNotSatisfiedException("Parameter " + parameter.getSimpleName() + " cannot be injected by GlueMeister. Make sure there is an @Glueable component which can be used to satisfy it.", parameter));
     }
 
     private List<GlueableInfo> findAllGlueablesForElement(Element parameter, List<GlueableInfo> glueables) {
