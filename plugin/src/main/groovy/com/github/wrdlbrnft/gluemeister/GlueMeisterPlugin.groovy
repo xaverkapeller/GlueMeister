@@ -57,6 +57,7 @@ class GlueMeisterPlugin implements Plugin<Project> {
         println()
 
         println '\t# Now scanning dependencies for GlueMeister componenents...'
+        println '\t#'
 
         final entities = []
         final glueables = []
@@ -70,7 +71,6 @@ class GlueMeisterPlugin implements Plugin<Project> {
                 it.name == 'glue-meister.json'
             }
             if (!entries.isEmpty()) {
-                println '\t#'
                 print '\t# - Reading Config of ' + file.name + ': '
                 entries.each {
                     final slurper = new JsonSlurper();
