@@ -224,7 +224,7 @@ class ClassResolver {
             } catch (Exception e) {
                 mProcessingEnvironment.getMessager().printMessage(
                         Diagnostic.Kind.NOTE,
-                        "Ran into this issue while following a resolution path: " + e.getMessage(),
+                        "Ran into an issue while following a resolution path: " + e.getMessage(),
                         null
                 );
             }
