@@ -5,7 +5,6 @@ import com.github.wrdlbrnft.codebuilder.code.CodeElement;
 import com.github.wrdlbrnft.codebuilder.executables.ExecutableBuilder;
 import com.github.wrdlbrnft.codebuilder.executables.Method;
 import com.github.wrdlbrnft.codebuilder.implementations.Implementation;
-import com.github.wrdlbrnft.codebuilder.variables.Field;
 import com.github.wrdlbrnft.codebuilder.variables.Variable;
 import com.github.wrdlbrnft.gluemeister.glueable.GlueableInfo;
 import com.github.wrdlbrnft.gluemeister.modules.GlueModuleInfo;
@@ -22,7 +21,7 @@ import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.Modifier;
 import javax.lang.model.element.PackageElement;
 import javax.lang.model.element.TypeElement;
-import javax.lang.model.type.TypeMirror;
+import javax.lang.model.type.DeclaredType;
 
 /**
  * Created with Android Studio<br>
@@ -45,9 +44,9 @@ public class GlueModuleFactoryBuilder {
         builder.setModifiers(EnumSet.of(Modifier.PUBLIC, Modifier.FINAL));
         builder.setName(entityInfo.getFactoryName());
 
-        final Map<GlueableInfo, CodeElement> resolvedElementsMap = new HashMap<>();
+        final Map<MatchedGlueable, CodeElement> resolvedElementsMap = new HashMap<>();
         final List<FieldInfo> fields = new ArrayList<>();
-        final ClassResolver resolver = new ClassResolver(mProcessingEnvironment, resolvedElementsMap, fields, builder, entityElement);
+        final ClassResolver resolver = new ClassResolver(mProcessingEnvironment, resolvedElementsMap, fields, builder, (DeclaredType) entityElement.asType());
         final ResolveResult resolveResult = resolver.resolveClass(allGlueables);
 
         builder.addMethod(new Method.Builder()

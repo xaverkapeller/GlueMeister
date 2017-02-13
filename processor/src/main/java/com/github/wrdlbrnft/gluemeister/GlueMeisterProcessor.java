@@ -125,7 +125,7 @@ public class GlueMeisterProcessor extends AbstractProcessor {
     public Set<String> getSupportedAnnotationTypes() {
         final Set<String> annotations = new HashSet<>();
         annotations.add(GlueModule.class.getCanonicalName());
-        annotations.add(GlueInject.class.getCanonicalName());
+        annotations.add(GlueSettings.class.getCanonicalName());
         annotations.add(Glueable.class.getCanonicalName());
         return annotations;
     }

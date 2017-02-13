@@ -14,19 +14,20 @@ import com.github.wrdlbrnft.codebuilder.util.Utils;
 import com.github.wrdlbrnft.codebuilder.variables.Field;
 import com.github.wrdlbrnft.codebuilder.variables.Variable;
 import com.github.wrdlbrnft.codebuilder.variables.Variables;
-import com.github.wrdlbrnft.gluemeister.GlueCollect;
-import com.github.wrdlbrnft.gluemeister.GlueFactory;
-import com.github.wrdlbrnft.gluemeister.GlueInject;
+import com.github.wrdlbrnft.gluemeister.CacheSetting;
 import com.github.wrdlbrnft.gluemeister.GlueMeisterException;
+import com.github.wrdlbrnft.gluemeister.GlueSettings;
+import com.github.wrdlbrnft.gluemeister.ResolveSetting;
 import com.github.wrdlbrnft.gluemeister.glueable.GlueableInfo;
 import com.github.wrdlbrnft.gluemeister.modules.exceptions.GlueModuleConstructorNotSatisfiedException;
 import com.github.wrdlbrnft.gluemeister.modules.exceptions.GlueModuleFactoryException;
 import com.github.wrdlbrnft.gluemeister.utils.ElementUtils;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.EnumSet;
-import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
@@ -48,13 +49,15 @@ import javax.tools.Diagnostic;
 
 class ClassResolver {
 
+    private interface PotentialGlueableMatch extends MatchedGlueable {
+        boolean isMatching();
+    }
+
     private static final Method METHOD_EMPTY_LIST = Methods.stub("emptyList");
     private static final Method METHOD_ADD = Methods.stub("add");
     private static final Method METHOD_UNMODIFIABLE_LIST = Methods.stub("unmodifiableList");
 
-    private final Map<GlueableInfo, CodeElement> mResolvedElementsMap;
-
-    private final Map<String, GlueableInfo> mTypeParameterMap = new HashMap<>();
+    private final Map<MatchedGlueable, CodeElement> mResolvedElementsMap;
 
     private final List<FieldInfo> mNestedClassFields = new ArrayList<>();
     private Implementation.Builder mNestedClassBuilder;
@@ -64,38 +67,25 @@ class ClassResolver {
     private final ProcessingEnvironment mProcessingEnvironment;
     private final Implementation.Builder mFactoryBuilder;
 
-    private final TypeElement mClassElement;
-
     private final TypeElement mListTypeElement;
 
-    private DeclaredType mDeclaredType;
+    private final TypeElement mClassElement;
+    private final DeclaredType mDeclaredType;
 
 
-    ClassResolver(ProcessingEnvironment processingEnvironment, Map<GlueableInfo, CodeElement> resolvedElementsMap, List<FieldInfo> factoryFields, Implementation.Builder factoryBuilder, TypeElement classElement) {
+    ClassResolver(ProcessingEnvironment processingEnvironment, Map<MatchedGlueable, CodeElement> resolvedElementsMap, List<FieldInfo> factoryFields, Implementation.Builder factoryBuilder, DeclaredType classType) {
         mResolvedElementsMap = resolvedElementsMap;
         mProcessingEnvironment = processingEnvironment;
         mFactoryFields = factoryFields;
         mFactoryBuilder = factoryBuilder;
-        mClassElement = classElement;
         mListTypeElement = mProcessingEnvironment.getElementUtils().getTypeElement("java.util.List");
+        mDeclaredType = classType;
+        mClassElement = (TypeElement) mProcessingEnvironment.getTypeUtils().asElement(classType);
     }
 
     ResolveResult resolveClass(List<GlueableInfo> glueables) {
-        final List<? extends TypeParameterElement> typeParameters = mClassElement.getTypeParameters();
-        final TypeMirror[] args = new TypeMirror[typeParameters.size()];
-        for (int i = 0, size = typeParameters.size(); i < size; i++) {
-            final TypeParameterElement typeParameter = typeParameters.get(i);
-            final GlueableInfo info = findGlueableForTypeParameter(typeParameter, glueables);
-            args[i] = getTypeMirrorOfGlueable(info);
-            mTypeParameterMap.put(typeParameter.getSimpleName().toString(), info);
-        }
-
-        mDeclaredType = mProcessingEnvironment.getTypeUtils().getDeclaredType(mClassElement, args);
-
         final List<ExecutableElement> abstractMethods = ElementUtils.determineAbstractMethods(mProcessingEnvironment, mClassElement);
-        final Type classType = typeParameters.isEmpty()
-                ? Types.of(mClassElement)
-                : Types.generic(Types.of(mClassElement), resolveTypeParameters(typeParameters));
+        final Type classType = Types.of(mDeclaredType);
 
         if (abstractMethods.isEmpty()) {
             return new ResolveResultImpl(
@@ -137,7 +127,7 @@ class ClassResolver {
         return abstractMethods.stream()
                 .map(method -> {
                     final ExecutableType executableType = (ExecutableType) mProcessingEnvironment.getTypeUtils().asMemberOf(mDeclaredType, method);
-                    final CodeElement resolvedMethodValue = resolveMethodReturnValue(glueables, method, executableType);
+                    final CodeElement resolvedMethodValue = resolveMethodReturnValue(method, executableType, glueables);
 
                     return new Method.Builder()
                             .setName(method.getSimpleName().toString())
@@ -162,59 +152,18 @@ class ClassResolver {
                 .collect(Collectors.toList());
     }
 
-    private CodeElement resolveMethodReturnValue(List<GlueableInfo> glueables, ExecutableElement method, ExecutableType executableType) {
-        final GlueCollect glueCollectAnnotation = method.getAnnotation(GlueCollect.class);
-        final GlueFactory glueFactoryAnnotation = method.getAnnotation(GlueFactory.class);
-        final boolean isFactory = glueFactoryAnnotation != null;
-        if (glueCollectAnnotation != null) {
-            final TypeMirror returnType = executableType.getReturnType();
-            final TypeMirror erasedReturnType = mProcessingEnvironment.getTypeUtils().erasure(returnType);
-            if (!mProcessingEnvironment.getTypeUtils().isAssignable(erasedReturnType, mListTypeElement.asType())) {
-                throw new GlueModuleFactoryException("You can use GlueCollect only on methods which return a List! " + method + " does not.", method);
-            }
-
-            final List<TypeMirror> typeParameters = Utils.getTypeParameters(returnType);
-            final TypeMirror collectedTypeMirror = typeParameters.get(0);
-            final List<GlueableInfo> matchingGlueables = findAllGlueablesForElement(collectedTypeMirror, glueables);
-
-            if (matchingGlueables.isEmpty()) {
-                return METHOD_EMPTY_LIST.callOnTarget(Types.COLLECTIONS);
-            }
-
-            final List<CodeElement> items = matchingGlueables.stream()
-                    .map(info -> resolveGlueableCodeElement(info, glueables, isFactory))
-                    .collect(Collectors.toList());
-
-            final Type collectedType = Types.of(collectedTypeMirror);
-            final Method aggregatorMethod = new Method.Builder()
-                    .setModifiers(EnumSet.of(Modifier.PRIVATE, Modifier.STATIC))
-                    .setReturnType(Types.generic(Types.LIST, collectedType))
-                    .setCode(new ExecutableBuilder() {
-                        @Override
-                        protected List<Variable> createParameters() {
-                            return Collections.emptyList();
-                        }
-
-                        @Override
-                        protected void write(Block block) {
-                            final Variable varList = Variables.of(Types.generic(Types.LIST, collectedType), Modifier.FINAL);
-                            block.set(varList, Types.generic(Types.ARRAY_LIST, collectedType).newInstance()).append(";").newLine();
-                            for (CodeElement item : items) {
-                                block.append(METHOD_ADD.callOnTarget(varList, item)).append(";").newLine();
-                            }
-                            block.append("return ").append(METHOD_UNMODIFIABLE_LIST.callOnTarget(Types.COLLECTIONS, varList)).append(";");
-                        }
-                    })
-                    .build();
-            mFactoryBuilder.addMethod(aggregatorMethod);
-
-            return aggregatorMethod.call();
+    private CodeElement resolveMethodReturnValue(ExecutableElement method, ExecutableType executableType, List<GlueableInfo> glueables) {
+        final GlueSettings glueSettingsAnnotation = method.getAnnotation(GlueSettings.class);
+        final CacheSetting cacheSetting = glueSettingsAnnotation != null ? glueSettingsAnnotation.cache() : CacheSetting.SINGLETON;
+        final List<ResolveSetting> resolveSettings = glueSettingsAnnotation != null ? Arrays.asList(glueSettingsAnnotation.resolve()) : new ArrayList<>();
+        if (resolveSettings.contains(ResolveSetting.COLLECT)) {
+            return resolveCollect(method, executableType, glueables, cacheSetting);
         }
 
-        final List<GlueableInfo> matchingGlueables = findAllGlueablesForElement(executableType.getReturnType(), glueables);
-        for (GlueableInfo glueableInfo : matchingGlueables) {
+        final List<MatchedGlueable> matchingGlueables = findAllGlueablesForElement(executableType.getReturnType(), glueables);
+        for (MatchedGlueable matchedGlueable : matchingGlueables) {
             try {
-                return resolveGlueableCodeElement(glueableInfo, glueables, isFactory);
+                return resolveGlueableCodeElement(matchedGlueable, glueables, cacheSetting);
             } catch (GlueModuleConstructorNotSatisfiedException e) {
                 mProcessingEnvironment.getMessager().printMessage(
                         Diagnostic.Kind.NOTE,
@@ -231,6 +180,52 @@ class ClassResolver {
         }
 
         throw new GlueModuleConstructorNotSatisfiedException("Return type of method " + method + " cannot be injected by GlueMeister. Make sure there is an @Glueable component which can be used to satisfy it.", method);
+    }
+
+    private CodeElement resolveCollect(ExecutableElement method, ExecutableType executableType, List<GlueableInfo> glueables, CacheSetting cacheSetting) {
+        final TypeMirror returnType = executableType.getReturnType();
+        final TypeMirror erasedReturnType = mProcessingEnvironment.getTypeUtils().erasure(returnType);
+        if (!mProcessingEnvironment.getTypeUtils().isAssignable(erasedReturnType, mListTypeElement.asType())) {
+            throw new GlueModuleFactoryException("You can use GlueCollect only on methods which return a List! " + method + " does not.", method);
+        }
+
+        final List<TypeMirror> typeParameters = Utils.getTypeParameters(returnType);
+        final TypeMirror collectedTypeMirror = typeParameters.get(0);
+        final List<MatchedGlueable> matchingGlueables = findAllGlueablesForElement(collectedTypeMirror, glueables);
+        System.out.println("A: " + matchingGlueables);
+
+        if (matchingGlueables.isEmpty()) {
+            return METHOD_EMPTY_LIST.callOnTarget(Types.COLLECTIONS);
+        }
+
+        final List<CodeElement> items = matchingGlueables.stream()
+                .map(type -> resolveGlueableCodeElement(type, glueables, cacheSetting))
+                .collect(Collectors.toList());
+
+        final Type collectedType = Types.of(collectedTypeMirror);
+        final Method aggregatorMethod = new Method.Builder()
+                .setModifiers(EnumSet.of(Modifier.PRIVATE, Modifier.STATIC))
+                .setReturnType(Types.generic(Types.LIST, collectedType))
+                .setCode(new ExecutableBuilder() {
+                    @Override
+                    protected List<Variable> createParameters() {
+                        return Collections.emptyList();
+                    }
+
+                    @Override
+                    protected void write(Block block) {
+                        final Variable varList = Variables.of(Types.generic(Types.LIST, collectedType), Modifier.FINAL);
+                        block.set(varList, Types.generic(Types.ARRAY_LIST, collectedType).newInstance()).append(";").newLine();
+                        for (CodeElement item : items) {
+                            block.append(METHOD_ADD.callOnTarget(varList, item)).append(";").newLine();
+                        }
+                        block.append("return ").append(METHOD_UNMODIFIABLE_LIST.callOnTarget(Types.COLLECTIONS, varList)).append(";");
+                    }
+                })
+                .build();
+        mFactoryBuilder.addMethod(aggregatorMethod);
+
+        return aggregatorMethod.call();
     }
 
     private List<Constructor> createConstructorsForSubclass(TypeElement classElement) {
@@ -260,23 +255,11 @@ class ClassResolver {
                 .collect(Collectors.toList());
     }
 
-    private Type[] resolveTypeParameters(List<? extends TypeParameterElement> typeParameters) {
-        return typeParameters.stream()
-                .map(Element::asType)
-                .map(this::resolveTypeMirror)
-                .map(Types::of)
-                .toArray(Type[]::new);
-    }
-
     private TypeMirror resolveTypeMirror(TypeMirror mirror) {
         switch (mirror.getKind()) {
 
             case TYPEVAR:
-                final GlueableInfo typeVarInfo = mTypeParameterMap.get(mirror.toString());
-                if (typeVarInfo == null) {
-                    throw new GlueModuleFactoryException("Failed to resolve Type Parameter: " + mirror, null);
-                }
-                return resolveTypeMirror(typeVarInfo.getElement().asType());
+                throw new GlueModuleFactoryException("Failed to resolve Type Mirror: " + mirror, null);
 
             default:
                 return mirror;
@@ -302,10 +285,12 @@ class ClassResolver {
             try {
                 return constructor.getParameters().stream()
                         .map(parameter -> {
-                            final List<GlueableInfo> matchingGlueables = findAllGlueablesForElement(parameter.asType(), glueables);
-                            for (GlueableInfo matchingGlueable : matchingGlueables) {
+                            final GlueSettings glueSettingsAnnotation = parameter.getAnnotation(GlueSettings.class);
+                            final CacheSetting cacheSetting = glueSettingsAnnotation != null ? glueSettingsAnnotation.cache() : CacheSetting.SINGLETON;
+                            final List<MatchedGlueable> matchingGlueables = findAllGlueablesForElement(parameter.asType(), glueables);
+                            for (MatchedGlueable matchedGlueable : matchingGlueables) {
                                 try {
-                                    return resolveGlueableCodeElement(matchingGlueable, glueables, false);
+                                    return resolveGlueableCodeElement(matchedGlueable, glueables, cacheSetting);
                                 } catch (GlueModuleConstructorNotSatisfiedException e) {
                                     mProcessingEnvironment.getMessager().printMessage(
                                             Diagnostic.Kind.NOTE,
@@ -336,73 +321,135 @@ class ClassResolver {
         throw new GlueModuleFactoryException("GlueMeister cannot create instances of " + entityElement.getSimpleName() + " because there is no constructor whose parameters can be satisfied. Look at the previous warnings to figure out why.", entityElement);
     }
 
-    private List<GlueableInfo> findAllGlueablesForElement(TypeMirror parameter, List<GlueableInfo> glueables) {
-        final GlueInject glueInject = parameter.getAnnotation(GlueInject.class);
-        if (glueInject != null) {
-            final String key = glueInject.value();
-            if (!key.trim().isEmpty()) {
-                return glueables.stream()
-                        .filter(info -> key.equals(info.getKey()))
-                        .collect(Collectors.toList());
-            }
-        }
-
+    private List<MatchedGlueable> findAllGlueablesForElement(TypeMirror parameter, List<GlueableInfo> glueables) {
+        final GlueSettings glueSettings = parameter.getAnnotation(GlueSettings.class);
+        final String key = glueSettings != null ? glueSettings.key() : "";
         return glueables.stream()
-                .filter(info -> {
-                    final Element element = info.getElement();
-                    final TypeMirror glueableTypeMirror = element.getKind() == ElementKind.METHOD
-                            ? ((ExecutableElement) element).getReturnType()
-                            : element.asType();
-                    return isAssignable(glueableTypeMirror, parameter);
-                })
+                .filter(info -> key.trim().isEmpty() || key.equals(info.getKey()))
+                .map(info -> matchGlueable(parameter, info))
+                .filter(PotentialGlueableMatch::isMatching)
                 .collect(Collectors.toList());
     }
 
-    private CodeElement resolveGlueableCodeElement(GlueableInfo glueableInfo, List<GlueableInfo> glueables, boolean factory) {
-        if (mResolvedElementsMap.containsKey(glueableInfo)) {
-            return mResolvedElementsMap.get(glueableInfo);
+    private PotentialGlueableMatch matchGlueable(TypeMirror parameter, GlueableInfo info) {
+        final Element glueableElement = info.getElement();
+        switch (info.getKind()) {
+
+            case INSTANCE_METHOD:
+            case STATIC_METHOD:
+                final ExecutableElement methodElement = (ExecutableElement) glueableElement;
+                final DeclaredType returnType = (DeclaredType) methodElement.getReturnType();
+                return new PotentialGlueableMatchImpl(
+                        isAssignable(returnType, parameter),
+                        info,
+                        returnType
+                );
+
+            case STATIC_FIELD:
+                final DeclaredType fieldType = (DeclaredType) glueableElement.asType();
+                return new PotentialGlueableMatchImpl(
+                        isAssignable(fieldType, parameter),
+                        info,
+                        fieldType
+                );
+
+            case ABSTRACT_CLASS:
+            case CLASS:
+            case INTERFACE:
+                final DeclaredType classType = (DeclaredType) glueableElement.asType();
+                System.out.println("ITSCH: " + classType);
+                if (isAssignable(classType, parameter)) {
+                    System.out.println("NI: " + true);
+                    return new PotentialGlueableMatchImpl(true, info, classType);
+                }
+                System.out.println("SAN: " + false);
+
+                final DeclaredType parameterType = (DeclaredType) parameter;
+                final List<? extends TypeMirror> typeArguments = parameterType.getTypeArguments();
+                System.out.println("TSCHI: " + typeArguments);
+                if (typeArguments.isEmpty()) {
+                    return new PotentialGlueableMatchImpl(false, info, classType);
+                }
+
+                final TypeElement glueableTypeElement = (TypeElement) glueableElement;
+                try {
+                    final DeclaredType declaredType = mProcessingEnvironment.getTypeUtils().getDeclaredType(
+                            glueableTypeElement,
+                            typeArguments.stream().toArray(TypeMirror[]::new)
+                    );
+
+                    System.out.println("OSTE: " + declaredType);
+                    return new PotentialGlueableMatchImpl(
+                            isAssignable(declaredType, parameter),
+                            info,
+                            declaredType
+                    );
+                } catch (Exception ignored) {
+                    return new PotentialGlueableMatchImpl(false, info, classType);
+                }
+
+            default:
+                throw new GlueMeisterException("Encountered unknown kind of Glueable: " + info.getKind(), glueableElement);
+        }
+    }
+
+    private CodeElement resolveGlueableCodeElement(MatchedGlueable matchedGlueable, List<GlueableInfo> glueables, CacheSetting cacheSetting) {
+        if (mResolvedElementsMap.containsKey(matchedGlueable)) {
+            return mResolvedElementsMap.get(matchedGlueable);
         }
 
-        final CodeElement codeElement = translateGlueableInfoToCodeElement(glueableInfo, glueables, factory);
-        mResolvedElementsMap.put(glueableInfo, codeElement);
+        final CodeElement codeElement = translateGlueableInfoToCodeElement(matchedGlueable, glueables, cacheSetting);
+        mResolvedElementsMap.put(matchedGlueable, codeElement);
         return codeElement;
     }
 
-    private CodeElement translateGlueableInfoToCodeElement(GlueableInfo glueableInfo, List<GlueableInfo> glueables, boolean factory) {
-        switch (glueableInfo.getKind()) {
+    private CodeElement translateGlueableInfoToCodeElement(MatchedGlueable matchedGlueable, List<GlueableInfo> glueables, CacheSetting cacheSetting) {
+        final GlueableInfo info = matchedGlueable.getInfo();
+        switch (info.getKind()) {
 
             case STATIC_FIELD:
-                final VariableElement fieldElement = (VariableElement) glueableInfo.getElement();
+                final VariableElement fieldElement = (VariableElement) info.getElement();
                 return resolveField(fieldElement);
 
             case CLASS:
             case ABSTRACT_CLASS:
             case INTERFACE:
-                final TypeElement classElement = (TypeElement) glueableInfo.getElement();
-                if (factory) {
-                    final ClassResolver subClassResolver = new ClassResolver(mProcessingEnvironment, mResolvedElementsMap, mFactoryFields, mFactoryBuilder, classElement);
-                    final ResolveResult resolvedClass = subClassResolver.resolveClass(glueables);
-                    return resolvedClass.getValue();
+                final TypeElement classElement = (TypeElement) info.getElement();
+                final List<DeclaredType> declaredTypes = resolveDeclaredTypesForAmbiguousType(matchedGlueable.getDeclaredType(), glueables);
+                for (DeclaredType declaredType : declaredTypes) {
+                    try {
+                        if (cacheSetting == CacheSetting.CREATE_NEW_INSTANCE) {
+                            final ClassResolver subClassResolver = new ClassResolver(mProcessingEnvironment, mResolvedElementsMap, mFactoryFields, mFactoryBuilder, declaredType);
+                            final ResolveResult resolvedClass = subClassResolver.resolveClass(glueables);
+                            return resolvedClass.getValue();
+                        }
+                        return getFieldInFactoryFor(classElement.asType(), () -> {
+                            final ClassResolver subClassResolver = new ClassResolver(mProcessingEnvironment, mResolvedElementsMap, mFactoryFields, mFactoryBuilder, declaredType);
+                            final ResolveResult resolvedClass = subClassResolver.resolveClass(glueables);
+                            return new Field.Builder()
+                                    .setModifiers(EnumSet.of(Modifier.PRIVATE, Modifier.STATIC, Modifier.FINAL))
+                                    .setType(resolvedClass.getType())
+                                    .setInitialValue(resolvedClass.getValue())
+                                    .build();
+                        });
+                    } catch (Exception e) {
+                        mProcessingEnvironment.getMessager().printMessage(
+                                Diagnostic.Kind.NOTE,
+                                "Ran into an issue while following a resolution path for a class: " + e.getMessage(),
+                                null
+                        );
+                    }
                 }
-                return getFieldInFactoryFor(classElement.asType(), () -> {
-                    final ClassResolver subClassResolver = new ClassResolver(mProcessingEnvironment, mResolvedElementsMap, mFactoryFields, mFactoryBuilder, classElement);
-                    final ResolveResult resolvedClass = subClassResolver.resolveClass(glueables);
-                    return new Field.Builder()
-                            .setModifiers(EnumSet.of(Modifier.PRIVATE, Modifier.STATIC, Modifier.FINAL))
-                            .setType(resolvedClass.getType())
-                            .setInitialValue(resolvedClass.getValue())
-                            .build();
-                });
 
             case INSTANCE_METHOD:
-                final ExecutableElement instanceMethodElement = (ExecutableElement) glueableInfo.getElement();
-                return resolveInstanceMethod(instanceMethodElement, glueables, factory);
+                final ExecutableElement instanceMethodElement = (ExecutableElement) info.getElement();
+                return resolveInstanceMethod(instanceMethodElement, glueables, cacheSetting);
 
             case STATIC_METHOD:
-                throw new GlueModuleConstructorNotSatisfiedException("Injecting this component is not yet supported. Look for an update!", glueableInfo.getElement());
+                throw new GlueModuleConstructorNotSatisfiedException("Injecting this component is not yet supported. Look for an update!", info.getElement());
 
             default:
-                throw new GlueMeisterException("Encountered unknown GlueableType: " + glueableInfo.getKind(), glueableInfo.getElement());
+                throw new GlueMeisterException("Encountered unknown GlueableType: " + info.getKind(), info.getElement());
         }
     }
 
@@ -432,9 +479,92 @@ class ClassResolver {
         return field;
     }
 
-    private CodeElement resolveInstanceMethod(ExecutableElement method, List<GlueableInfo> glueables, boolean factory) {
+    private CodeElement resolveInstanceMethod(ExecutableElement method, List<GlueableInfo> glueables, CacheSetting cacheSetting) {
         final TypeElement parent = (TypeElement) method.getEnclosingElement();
-        final ClassResolver parentResolver = new ClassResolver(mProcessingEnvironment, mResolvedElementsMap, mFactoryFields, mFactoryBuilder, parent);
+        final List<DeclaredType> possibleTypes = resolveDeclaredTypesForAmbiguousType((DeclaredType) parent.asType(), glueables);
+        for (DeclaredType parentType : possibleTypes) {
+            try {
+                return resolveParentForInstanceMethod(method, glueables, cacheSetting, parentType);
+            } catch (Exception e) {
+                mProcessingEnvironment.getMessager().printMessage(
+                        Diagnostic.Kind.NOTE,
+                        "Ran into an issue while following a resolution path for the parent of an instance method: " + e.getMessage(),
+                        null
+                );
+            }
+        }
+
+        throw new GlueModuleFactoryException("Failed to resolve type of " + parent.getSimpleName() + " which is required to use instance method " + method, method);
+    }
+
+    private List<DeclaredType> resolveDeclaredTypesForAmbiguousType(DeclaredType type, List<GlueableInfo> glueables) {
+        if (type.getTypeArguments().stream().noneMatch(argument -> argument.getKind() == TypeKind.WILDCARD || argument.getKind() == TypeKind.TYPEVAR)) {
+            return Collections.singletonList(type);
+        }
+
+        final List<DeclaredType> result = new ArrayList<>();
+        final TypeElement element = (TypeElement) mProcessingEnvironment.getTypeUtils().asElement(type);
+        final Map<? extends TypeParameterElement, EndlessIterator<MatchedGlueable>> typeParameterMap = element.getTypeParameters().stream().collect(Collectors.toMap(
+                parameter -> parameter,
+                parameter -> new EndlessIterator<>(findGlueablesForTypeParameter(parameter, glueables))
+        ));
+
+        if (typeParameterMap.values().isEmpty()) {
+            final DeclaredType declaredType = (DeclaredType) element.asType();
+            result.add(declaredType);
+            return result;
+        }
+
+        final boolean unmatchableParameters = typeParameterMap.values().stream()
+                .filter(EndlessIterator::isEmpty)
+                .findAny().isPresent();
+
+        if (unmatchableParameters) {
+            throw new GlueModuleFactoryException("GlueMeister failed to inject type parameters of " + element.getSimpleName(), element);
+        }
+
+        final int count = typeParameterMap.values().stream()
+                .mapToInt(EndlessIterator::getItemCount)
+                .reduce((a, b) -> a * b)
+                .orElse(0);
+
+        for (int i = 0; i < count; i++) {
+            try {
+                final TypeMirror[] matchedGlueables = typeParameterMap.keySet().stream()
+                        .map(typeParameterMap::get)
+                        .map(EndlessIterator::next)
+                        .map(MatchedGlueable::getDeclaredType)
+                        .toArray(TypeMirror[]::new);
+
+                final DeclaredType declaredType = mProcessingEnvironment.getTypeUtils().getDeclaredType(element, matchedGlueables);
+                result.add(declaredType);
+            } catch (Exception e) {
+                mProcessingEnvironment.getMessager().printMessage(
+                        Diagnostic.Kind.NOTE,
+                        "Ran into an issue while following a resolution path for the type parameters of an ambiguous type: " + e.getMessage(),
+                        null
+                );
+            }
+        }
+
+        return result;
+    }
+
+    private List<MatchedGlueable> findGlueablesForTypeParameter(TypeParameterElement typeParameter, List<GlueableInfo> glueables) {
+        final GlueSettings glueSettings = typeParameter.getAnnotation(GlueSettings.class);
+        final String key = glueSettings != null ? glueSettings.key() : "";
+        return glueables.stream()
+                .filter(info -> key.trim().isEmpty() || key.equals(info.getKey()))
+                .map(info -> typeParameter.getBounds().stream()
+                        .map(parameter -> matchGlueable(parameter, info))
+                        .reduce((a, b) -> new PotentialGlueableMatchImpl(a.isMatching() && b.isMatching(), a.getInfo(), a.getDeclaredType()))
+                        .orElse(new PotentialGlueableMatchImpl(false, null, null)))
+                .filter(PotentialGlueableMatch::isMatching)
+                .collect(Collectors.toList());
+    }
+
+    private CodeElement resolveParentForInstanceMethod(ExecutableElement method, List<GlueableInfo> glueables, CacheSetting cacheSetting, DeclaredType parentType) {
+        final ClassResolver parentResolver = new ClassResolver(mProcessingEnvironment, mResolvedElementsMap, mFactoryFields, mFactoryBuilder, parentType);
         final ResolveResult result = parentResolver.resolveClass(glueables);
         final Field parentField = getFieldInFactoryFor(result.getBaseType(), () -> new Field.Builder()
                 .setModifiers(EnumSet.of(Modifier.PRIVATE, Modifier.STATIC, Modifier.FINAL))
@@ -444,7 +574,7 @@ class ClassResolver {
 
         final TypeMirror returnType = resolveReturnType(method);
         final CodeElement resultElement = Methods.call(method, parentField);
-        if (factory) {
+        if (cacheSetting == CacheSetting.CREATE_NEW_INSTANCE) {
             return resultElement;
         }
 
@@ -468,43 +598,6 @@ class ClassResolver {
     private CodeElement resolveField(VariableElement fieldElement) {
         final TypeElement enclosingElement = (TypeElement) fieldElement.getEnclosingElement();
         return new Block().append(Types.of(enclosingElement)).append(".").append(fieldElement.getSimpleName().toString());
-    }
-
-    private GlueableInfo findGlueableForTypeParameter(TypeParameterElement parameter, List<GlueableInfo> glueables) {
-        return glueables.stream()
-                .filter(info -> {
-                    final TypeMirror glueableTypeMirror = getTypeMirrorOfGlueable(info);
-                    for (TypeMirror boundType : parameter.getBounds()) {
-                        if (!isAssignable(glueableTypeMirror, boundType)) {
-                            return false;
-                        }
-                    }
-                    return true;
-                })
-                .findAny().orElseThrow(() -> new GlueModuleConstructorNotSatisfiedException("Type Parameter " + parameter.getSimpleName() + " cannot be injected by GlueMeister. Make sure there is an @Glueable component which can be used to satisfy it.", parameter));
-    }
-
-    private TypeMirror getTypeMirrorOfGlueable(GlueableInfo info) {
-        switch (info.getKind()) {
-
-            case STATIC_FIELD:
-                final VariableElement fieldElement = (VariableElement) info.getElement();
-                return fieldElement.asType();
-
-            case INTERFACE:
-            case ABSTRACT_CLASS:
-            case CLASS:
-                final TypeElement classElement = (TypeElement) info.getElement();
-                return classElement.asType();
-
-            case INSTANCE_METHOD:
-            case STATIC_METHOD:
-                final ExecutableElement executableElement = (ExecutableElement) info.getElement();
-                return executableElement.getReturnType();
-
-            default:
-                throw new GlueMeisterException("Encountered unknown Glueable Kind: " + info.getKind(), null);
-        }
     }
 
     private boolean isAssignable(TypeMirror a, TypeMirror b) {
@@ -561,6 +654,86 @@ class ClassResolver {
         @Override
         public Field getField() {
             return mField;
+        }
+    }
+
+    private static class PotentialGlueableMatchImpl implements PotentialGlueableMatch {
+
+        private final boolean mMatching;
+        private final GlueableInfo mInfo;
+        private final DeclaredType mDeclaredType;
+
+        private PotentialGlueableMatchImpl(boolean matching, GlueableInfo info, DeclaredType declaredType) {
+            mMatching = matching;
+            mInfo = info;
+            mDeclaredType = declaredType;
+        }
+
+        @Override
+        public boolean isMatching() {
+            return mMatching;
+        }
+
+        @Override
+        public GlueableInfo getInfo() {
+            return mInfo;
+        }
+
+        @Override
+        public DeclaredType getDeclaredType() {
+            return mDeclaredType;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+
+            PotentialGlueableMatchImpl that = (PotentialGlueableMatchImpl) o;
+
+            if (mInfo != null ? !mInfo.equals(that.mInfo) : that.mInfo != null) return false;
+            return mDeclaredType != null ? mDeclaredType.equals(that.mDeclaredType) : that.mDeclaredType == null;
+
+        }
+
+        @Override
+        public int hashCode() {
+            int result = mInfo != null ? mInfo.hashCode() : 0;
+            result = 31 * result + (mDeclaredType != null ? mDeclaredType.hashCode() : 0);
+            return result;
+        }
+    }
+
+    private static class EndlessIterator<T> implements Iterator<T> {
+
+        private final List<T> mList;
+        private int mIndex = 0;
+
+        private EndlessIterator(List<T> list) {
+            mList = Collections.unmodifiableList(list);
+        }
+
+        @Override
+        public boolean hasNext() {
+            return !mList.isEmpty();
+        }
+
+        public int getItemCount() {
+            return mList.size();
+        }
+
+        public boolean isEmpty() {
+            return mList.isEmpty();
+        }
+
+        @Override
+        public T next() {
+            return mList.get(mIndex++ % mList.size());
+        }
+
+        @Override
+        public String toString() {
+            return mList.toString();
         }
     }
 }
