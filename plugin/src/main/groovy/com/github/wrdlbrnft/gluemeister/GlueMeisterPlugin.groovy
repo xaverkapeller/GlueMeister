@@ -20,21 +20,21 @@ class GlueMeisterPlugin implements Plugin<Project> {
     @SuppressWarnings("GroovyAssignabilityCheck")
     @Override
     void apply(Project project) {
-        
+
         project.afterEvaluate {
             
             final projectInfo = ProjectInfo.analyzeProject(project)
-            
+
             project.dependencies {
                 provided 'com.github.wrdlbrnft:glue-meister-api:' + BuildConfig.VERSION
                 annotationProcessor 'com.github.wrdlbrnft:glue-meister-processor:' + BuildConfig.VERSION
             }
-            
+
             project.android[projectInfo.variants].all { variant ->
 
                 if (projectInfo.library) {
                     project.tasks.findByName(NameUtils.createVariantTaskName('bundle', variant)).configure {
-                        from new File(project.buildDir, 'generated/glue/' + variant.name)
+                        from new File(project.buildDir, 'generated/glue/' + getBuildPath(variant))
                     }
                 }
 
@@ -51,6 +51,8 @@ class GlueMeisterPlugin implements Plugin<Project> {
     }
 
     static beforeCompile(Project project, variant) {
+        println 'Sage: ' + variant.productFlavors[0].name
+
         printLogo()
         println()
         println '\tGlueMeister is performing its magic! Are you ready for the magic show?'
@@ -92,7 +94,7 @@ class GlueMeisterPlugin implements Plugin<Project> {
         final jsonBulder = new JsonBuilder();
         jsonBulder entities: entities, glueables: glueables, rootPackageName: variant.applicationId
 
-        final outputDir = new File(project.buildDir, '/generated/source/apt/' + variant.name + '/com/github/wrdlbrnft/gluemeister')
+        final outputDir = new File(project.buildDir, '/generated/source/apt/' + getBuildPath(variant) + '/com/github/wrdlbrnft/gluemeister')
         outputDir.mkdirs()
         final dependenciesFile = new File(outputDir, 'glue-meister-dependencies.json')
         dependenciesFile.withWriter {
@@ -118,7 +120,7 @@ class GlueMeisterPlugin implements Plugin<Project> {
             final List glueables = new ArrayList<>();
 
             project.buildDir.traverse(type: FileType.FILES, nameFilter: ~/glue-meister_[0-9]+.json/) {
-                if (it.absolutePath.endsWith('/' + variant.name + '/com/github/wrdlbrnft/gluemeister/' + it.name)) {
+                if (it.absolutePath.endsWith('/' + getBuildPath(variant) + '/com/github/wrdlbrnft/gluemeister/' + it.name)) {
                     final slurper = new JsonSlurper();
                     final result = slurper.parseText(it.text)
                     entities.addAll(result.entities);
@@ -129,7 +131,7 @@ class GlueMeisterPlugin implements Plugin<Project> {
             def builder = new JsonBuilder();
             builder entities: entities, glueables: glueables
 
-            final glueOutputDir = new File(project.buildDir, 'generated/glue/' + variant.name)
+            final glueOutputDir = new File(project.buildDir, 'generated/glue/' + getBuildPath(variant))
             glueOutputDir.mkdirs()
             final glueJson = new File(glueOutputDir, 'glue-meister.json')
             glueJson.withWriter { file -> file.append(builder.toString()) }
@@ -137,6 +139,13 @@ class GlueMeisterPlugin implements Plugin<Project> {
 
         println '\tGlueMeister is done! Hope you enjoyed the show.'
         println()
+    }
+
+    static def getBuildPath(variant) {
+        if (variant.productFlavors[0].name) {
+            return variant.productFlavors[0].name + '/' + variant.buildType.name
+        }
+        return variant.name
     }
 
     static printLogo() {
