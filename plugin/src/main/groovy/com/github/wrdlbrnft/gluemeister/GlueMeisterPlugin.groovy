@@ -22,7 +22,7 @@ class GlueMeisterPlugin implements Plugin<Project> {
     void apply(Project project) {
 
         project.afterEvaluate {
-            
+
             final projectInfo = ProjectInfo.analyzeProject(project)
 
             project.dependencies {
@@ -51,8 +51,6 @@ class GlueMeisterPlugin implements Plugin<Project> {
     }
 
     static beforeCompile(Project project, variant) {
-        println 'Sage: ' + variant.productFlavors[0].name
-
         printLogo()
         println()
         println '\tGlueMeister is performing its magic! Are you ready for the magic show?'
@@ -67,6 +65,14 @@ class GlueMeisterPlugin implements Plugin<Project> {
         final Set<File> files = new HashSet<>();
         project.configurations.compile.resolve().forEach { files.add(it) }
         project.configurations.provided.resolve().forEach { files.add(it) }
+
+        final flavor = variant.productFlavors[0]
+        if (flavor) {
+            project.configurations.getByName(flavor.name + 'Compile').resolve().forEach {
+                files.add(it)
+            }
+        }
+
         files.forEach { file ->
             def zipFile = new ZipFile(file)
             def entries = zipFile.entries().findAll {
@@ -107,8 +113,7 @@ class GlueMeisterPlugin implements Plugin<Project> {
         println()
     }
 
-    static afterCompilation(Project project, ProjectInfo projectInfo, variant) {
-        println()
+    static afterCompilation(Project project, ProjectInfo projectInfo, variant) {        println()
         println '\tCompilation is done! GlueMeister components generated.'
 
         if (projectInfo.library) {
@@ -142,8 +147,9 @@ class GlueMeisterPlugin implements Plugin<Project> {
     }
 
     static def getBuildPath(variant) {
-        if (variant.productFlavors[0].name) {
-            return variant.productFlavors[0].name + '/' + variant.buildType.name
+        final flavor = variant.productFlavors[0]
+        if (flavor) {
+            return flavor.name + '/' + variant.buildType.name
         }
         return variant.name
     }
