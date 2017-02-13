@@ -506,7 +506,10 @@ class ClassResolver {
         final TypeElement element = (TypeElement) mProcessingEnvironment.getTypeUtils().asElement(type);
         final Map<? extends TypeParameterElement, EndlessIterator<MatchedGlueable>> typeParameterMap = element.getTypeParameters().stream().collect(Collectors.toMap(
                 parameter -> parameter,
-                parameter -> new EndlessIterator<>(findGlueablesForTypeParameter(parameter, glueables))
+                parameter -> {
+                    final List<MatchedGlueable> glueablesForTypeParameter = findGlueablesForTypeParameter(parameter, glueables);
+                    return new EndlessIterator<>(glueablesForTypeParameter);
+                }
         ));
 
         if (typeParameterMap.values().isEmpty()) {
