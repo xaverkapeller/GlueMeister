@@ -192,7 +192,6 @@ class ClassResolver {
         final List<TypeMirror> typeParameters = Utils.getTypeParameters(returnType);
         final TypeMirror collectedTypeMirror = typeParameters.get(0);
         final List<MatchedGlueable> matchingGlueables = findAllGlueablesForElement(collectedTypeMirror, glueables);
-        System.out.println("A: " + matchingGlueables);
 
         if (matchingGlueables.isEmpty()) {
             return METHOD_EMPTY_LIST.callOnTarget(Types.COLLECTIONS);
@@ -357,16 +356,12 @@ class ClassResolver {
             case CLASS:
             case INTERFACE:
                 final DeclaredType classType = (DeclaredType) glueableElement.asType();
-                System.out.println("ITSCH: " + classType);
                 if (isAssignable(classType, parameter)) {
-                    System.out.println("NI: " + true);
                     return new PotentialGlueableMatchImpl(true, info, classType);
                 }
-                System.out.println("SAN: " + false);
 
                 final DeclaredType parameterType = (DeclaredType) parameter;
                 final List<? extends TypeMirror> typeArguments = parameterType.getTypeArguments();
-                System.out.println("TSCHI: " + typeArguments);
                 if (typeArguments.isEmpty()) {
                     return new PotentialGlueableMatchImpl(false, info, classType);
                 }
@@ -378,7 +373,6 @@ class ClassResolver {
                             typeArguments.stream().toArray(TypeMirror[]::new)
                     );
 
-                    System.out.println("OSTE: " + declaredType);
                     return new PotentialGlueableMatchImpl(
                             isAssignable(declaredType, parameter),
                             info,
