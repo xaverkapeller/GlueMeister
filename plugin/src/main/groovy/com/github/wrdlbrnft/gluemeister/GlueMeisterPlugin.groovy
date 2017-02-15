@@ -53,11 +53,11 @@ class GlueMeisterPlugin implements Plugin<Project> {
     static beforeCompile(Project project, variant) {
         printLogo()
         println()
-        println '\tGlueMeister is performing its magic! Are you ready for the magic show?'
+        println 'GlueMeister is performing its magic! Are you ready for the magic show?'
         println()
 
-        println '\t# Now scanning dependencies for GlueMeister componenents...'
-        println '\t#'
+        println '# Now scanning dependencies for GlueMeister componenents...'
+        println '#'
 
         final entities = []
         final glueables = []
@@ -79,7 +79,7 @@ class GlueMeisterPlugin implements Plugin<Project> {
                 it.name == 'glue-meister.json'
             }
             if (!entries.isEmpty()) {
-                print '\t# - Reading Config of ' + file.name + ': '
+                print '# - Reading Config of ' + file.name + ': '
                 entries.each {
                     final slurper = new JsonSlurper();
                     final result = slurper.parseText(zipFile.getInputStream(it).text)
@@ -91,10 +91,10 @@ class GlueMeisterPlugin implements Plugin<Project> {
             }
         }
         if (!entities.isEmpty() || !glueables.isEmpty()) {
-            println '\t#'
-            println '\t# Scanning dependencies is done!'
+            println '#'
+            println '# Scanning dependencies is done!'
         } else {
-            println '\t# Scanning dependencies is done! Nothing was found...'
+            println '# Scanning dependencies is done! Nothing was found...'
         }
 
         final jsonBulder = new JsonBuilder();
@@ -108,17 +108,17 @@ class GlueMeisterPlugin implements Plugin<Project> {
         }
 
         println()
-        println '\tNow your code will be compiled and GlueMeister components generated...'
-        println '\tCompilation starts now...'
+        println 'Now your code will be compiled and GlueMeister components generated...'
+        println 'Compilation starts now...'
         println()
     }
 
     static afterCompilation(Project project, ProjectInfo projectInfo, variant) {        println()
-        println '\tCompilation is done! GlueMeister components generated.'
+        println 'Compilation is done! GlueMeister components generated.'
 
         if (projectInfo.library) {
-            println '\tNow we are exporting GlueMeister configuration.'
-            println '\tThis enables other projects depending on this library to use GlueMeister components you defined here.'
+            println 'Now we are exporting GlueMeister configuration.'
+            println 'This enables other projects depending on this library to use GlueMeister components you defined here.'
             println()
 
             final List entities = new ArrayList<>();
@@ -142,7 +142,7 @@ class GlueMeisterPlugin implements Plugin<Project> {
             glueJson.withWriter { file -> file.append(builder.toString()) }
         }
 
-        println '\tGlueMeister is done! Hope you enjoyed the show.'
+        println 'GlueMeister is done! Hope you enjoyed the show.'
         println()
     }
 

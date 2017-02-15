@@ -55,7 +55,7 @@ public class GlueMeisterProcessor extends AbstractProcessor {
 
     @Override
     public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment roundEnv) {
-        System.out.println(String.format(Locale.getDefault(), "\t# Round %d: Generating GlueMeister components...", mRound));
+        System.out.println(String.format(Locale.getDefault(), "# Round %d: Generating GlueMeister components...", mRound));
 
         try {
             tryProcessing(roundEnv);
