@@ -46,7 +46,7 @@ public class ElementUtils {
             return;
         }
 
-        if (!hasPublicOrPackageLocalVisibility(element)) {
+        if (!hasPublicVisibility(element)) {
             throw exceptionFactory.apply("Element " + element.getSimpleName() + " is not accessible to GlueMeister. The element has to have at least package local or public visibility.", element);
         }
 
@@ -56,7 +56,7 @@ public class ElementUtils {
                 throw exceptionFactory.apply("Element " + element.getSimpleName() + " is not accessible to GlueMeister. It is nested inside " + enclosingElement.getSimpleName() + " and this element has to be static. Currently it is not static.", enclosingElement);
             }
 
-            if (!hasPublicOrPackageLocalVisibility(enclosingElement)) {
+            if (!hasPublicVisibility(enclosingElement)) {
                 throw exceptionFactory.apply("Element " + element.getSimpleName() + " is not accessible to GlueMeister. It is nested inside " + enclosingElement.getSimpleName() + " and this element has to have at least package local or public visibility.", enclosingElement);
             }
 
@@ -107,17 +107,9 @@ public class ElementUtils {
         return element.getModifiers().contains(Modifier.FINAL);
     }
 
-    public static boolean hasPublicOrPackageLocalVisibility(Element element) {
+    public static boolean hasPublicVisibility(Element element) {
         final Set<Modifier> modifiers = element.getModifiers();
-        if (modifiers.contains(Modifier.PUBLIC) || modifiers.contains(Modifier.DEFAULT)) {
-            return true;
-        }
-
-        if (modifiers.contains(Modifier.PRIVATE) || modifiers.contains(Modifier.PROTECTED)) {
-            return false;
-        }
-
-        return true;
+        return modifiers.contains(Modifier.PUBLIC);
     }
 
     public static List<ExecutableElement> determineAbstractMethods(ProcessingEnvironment processingEnv, TypeElement element) {

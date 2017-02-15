@@ -22,12 +22,12 @@ import com.github.wrdlbrnft.gluemeister.glueable.GlueableInfo;
 import com.github.wrdlbrnft.gluemeister.modules.exceptions.GlueModuleConstructorNotSatisfiedException;
 import com.github.wrdlbrnft.gluemeister.modules.exceptions.GlueModuleFactoryException;
 import com.github.wrdlbrnft.gluemeister.utils.ElementUtils;
+import com.github.wrdlbrnft.gluemeister.utils.EndlessIterator;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.EnumSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
@@ -277,7 +277,7 @@ class ClassResolver {
                 .collect(Collectors.toList());
 
         for (ExecutableElement constructor : constructors) {
-            if (!ElementUtils.hasPublicOrPackageLocalVisibility(constructor)) {
+            if (!ElementUtils.hasPublicVisibility(constructor)) {
                 continue;
             }
 
@@ -402,83 +402,145 @@ class ClassResolver {
         switch (info.getKind()) {
 
             case STATIC_FIELD:
-                final VariableElement fieldElement = (VariableElement) info.getElement();
-                return resolveField(fieldElement);
+                return resolveField(info);
 
             case CLASS:
             case ABSTRACT_CLASS:
             case INTERFACE:
-                final TypeElement classElement = (TypeElement) info.getElement();
-                final List<DeclaredType> declaredTypes = resolveDeclaredTypesForAmbiguousType(matchedGlueable.getDeclaredType(), glueables);
-                for (DeclaredType declaredType : declaredTypes) {
-                    try {
-                        if (cacheSetting == CacheSetting.CREATE_NEW_INSTANCE) {
-                            final ClassResolver subClassResolver = new ClassResolver(mProcessingEnvironment, mResolvedElementsMap, mFactoryFields, mFactoryBuilder, declaredType);
-                            final ResolveResult resolvedClass = subClassResolver.resolveClass(glueables);
-                            return resolvedClass.getValue();
-                        }
-                        return getFieldInFactoryFor(classElement.asType(), () -> {
-                            final ClassResolver subClassResolver = new ClassResolver(mProcessingEnvironment, mResolvedElementsMap, mFactoryFields, mFactoryBuilder, declaredType);
-                            final ResolveResult resolvedClass = subClassResolver.resolveClass(glueables);
-                            return new Field.Builder()
-                                    .setModifiers(EnumSet.of(Modifier.PRIVATE, Modifier.STATIC, Modifier.FINAL))
-                                    .setType(resolvedClass.getType())
-                                    .setInitialValue(resolvedClass.getValue())
-                                    .build();
-                        });
-                    } catch (Exception e) {
-                        mProcessingEnvironment.getMessager().printMessage(
-                                Diagnostic.Kind.NOTE,
-                                "Ran into an issue while following a resolution path for a class: " + e.getMessage(),
-                                null
-                        );
-                    }
-                }
+                return resolveType(matchedGlueable, glueables, cacheSetting);
 
             case INSTANCE_METHOD:
-                final ExecutableElement instanceMethodElement = (ExecutableElement) info.getElement();
-                return resolveInstanceMethod(instanceMethodElement, glueables, cacheSetting);
+                return resolveInstanceMethod(info, glueables, cacheSetting);
 
             case STATIC_METHOD:
-                throw new GlueModuleConstructorNotSatisfiedException("Injecting this component is not yet supported. Look for an update!", info.getElement());
+                return resolveStaticMethod(info, cacheSetting);
 
             default:
                 throw new GlueMeisterException("Encountered unknown GlueableType: " + info.getKind(), info.getElement());
         }
     }
 
-    private Field getFieldInFactoryFor(TypeMirror typeMirror, Supplier<Field> fieldSupplier) {
-        for (FieldInfo field : mFactoryFields) {
-            final TypeMirror fieldType = field.getTypeMirror();
-            if (isAssignable(typeMirror, fieldType)) {
-                return field.getField();
+    private CodeElement resolveType(MatchedGlueable matchedGlueable, List<GlueableInfo> glueables, CacheSetting cacheSetting) {
+        final GlueableInfo info = matchedGlueable.getInfo();
+        final TypeElement classElement = (TypeElement) info.getElement();
+        final List<DeclaredType> declaredTypes = resolveDeclaredTypesForAmbiguousType(matchedGlueable.getDeclaredType(), glueables);
+        for (DeclaredType declaredType : declaredTypes) {
+            final ClassResolver subClassResolver = new ClassResolver(mProcessingEnvironment, mResolvedElementsMap, mFactoryFields, mFactoryBuilder, declaredType);
+            final ResolveResult resolvedClass = subClassResolver.resolveClass(glueables);
+            final CodeElement value = resolvedClass.getValue();
+            try {
+                switch (cacheSetting) {
+
+                    case SINGLETON:
+                        return getFieldInFactoryFor(declaredType, resolvedClass::getType, resolvedClass::getValue);
+
+                    case REUSE_SAME_INSTANCE:
+                        return getFieldInNestedClassFor(declaredType, resolvedClass::getType, resolvedClass::getValue);
+
+                    case CREATE_NEW_INSTANCE:
+                        return value;
+
+                    default:
+                        throw new GlueMeisterException("Encountered unkown cache setting: " + cacheSetting, null);
+                }
+            } catch (Exception e) {
+                mProcessingEnvironment.getMessager().printMessage(
+                        Diagnostic.Kind.NOTE,
+                        "Ran into an issue while following a resolution path for a class: " + e.getMessage(),
+                        null
+                );
             }
         }
-        final Field field = fieldSupplier.get();
+
+        throw new GlueModuleFactoryException("GlueMeister failed to inject type " + matchedGlueable.getDeclaredType() + ". Make sure there is an @Glueable component which can be used to satisfy it.", classElement);
+    }
+
+    private CodeElement resolveStaticMethod(GlueableInfo info, CacheSetting cacheSetting) {
+        final ExecutableElement staticMethodElement = (ExecutableElement) info.getElement();
+        final TypeElement enclosingElement = (TypeElement) staticMethodElement.getEnclosingElement();
+        switch (cacheSetting) {
+
+            case SINGLETON:
+                return getFieldInFactoryFor(staticMethodElement.getReturnType(),
+                        () -> Types.of(staticMethodElement.getReturnType()),
+                        () -> Methods.from(staticMethodElement).callOnTarget(Types.of(enclosingElement))
+                );
+
+            case REUSE_SAME_INSTANCE:
+                return getFieldInNestedClassFor(staticMethodElement.getReturnType(),
+                        () -> Types.of(staticMethodElement.getReturnType()),
+                        () -> Methods.from(staticMethodElement).callOnTarget(Types.of(enclosingElement))
+                );
+
+            case CREATE_NEW_INSTANCE:
+                return Methods.from(staticMethodElement).callOnTarget(Types.of(enclosingElement));
+
+            default:
+                throw new GlueMeisterException("Encountered unknown cache setting: " + cacheSetting, null);
+        }
+    }
+
+    private Field getFieldInFactoryFor(TypeMirror typeMirror, Supplier<Type> typeSupplier, Supplier<CodeElement> valueSupplier) {
+        for (FieldInfo info : mFactoryFields) {
+            final TypeMirror fieldType = info.getTypeMirror();
+            if (isAssignable(typeMirror, fieldType)) {
+                return info.getField();
+            }
+        }
+        final Field field = new Field.Builder()
+                .setModifiers(EnumSet.of(Modifier.PRIVATE, Modifier.STATIC, Modifier.FINAL))
+                .setType(typeSupplier.get())
+                .setInitialValue(valueSupplier.get())
+                .build();
         mFactoryBuilder.addField(field);
         mFactoryFields.add(new FieldInfoImpl(typeMirror, field));
         return field;
     }
 
-    private Field getFieldInNestedClassFor(TypeMirror typeMirror, Supplier<Field> fieldSupplier) {
-        for (FieldInfo field : mNestedClassFields) {
-            final TypeMirror fieldType = field.getTypeMirror();
+    private Field getFieldInNestedClassFor(TypeMirror typeMirror, Supplier<Type> typeSupplier, Supplier<CodeElement> valueSupplier) {
+        for (FieldInfo info : mNestedClassFields) {
+            final TypeMirror fieldType = info.getTypeMirror();
             if (isAssignable(typeMirror, fieldType)) {
-                return field.getField();
+                return info.getField();
             }
         }
-        final Field field = fieldSupplier.get();
+        final Field field = new Field.Builder()
+                .setModifiers(EnumSet.of(Modifier.PRIVATE, Modifier.FINAL))
+                .setType(typeSupplier.get())
+                .setInitialValue(valueSupplier.get())
+                .build();
         mNestedClassBuilder.addField(field);
         mNestedClassFields.add(new FieldInfoImpl(typeMirror, field));
         return field;
     }
 
-    private CodeElement resolveInstanceMethod(ExecutableElement method, List<GlueableInfo> glueables, CacheSetting cacheSetting) {
+    private CodeElement resolveInstanceMethod(GlueableInfo info, List<GlueableInfo> glueables, CacheSetting cacheSetting) {
+        final ExecutableElement method = (ExecutableElement) info.getElement();
         final TypeElement parent = (TypeElement) method.getEnclosingElement();
         final List<DeclaredType> possibleTypes = resolveDeclaredTypesForAmbiguousType((DeclaredType) parent.asType(), glueables);
+        final TypeMirror returnType = resolveReturnType(method);
         for (DeclaredType parentType : possibleTypes) {
             try {
-                return resolveParentForInstanceMethod(method, glueables, cacheSetting, parentType);
+                switch (cacheSetting) {
+
+                    case SINGLETON:
+                        return getFieldInFactoryFor(returnType,
+                                () -> Types.of(returnType),
+                                () -> resolveInstanceMethodCallOnParent(parentType, method, glueables)
+                        );
+
+                    case REUSE_SAME_INSTANCE:
+                        return getFieldInNestedClassFor(returnType,
+                                () -> Types.of(returnType),
+                                () -> resolveInstanceMethodCallOnParent(parentType, method, glueables)
+                        );
+
+                    case CREATE_NEW_INSTANCE:
+                        return resolveInstanceMethodCallOnParent(parentType, method, glueables);
+
+                    default:
+                        throw new GlueMeisterException("Encountered unknown cache setting: " + cacheSetting, null);
+                }
             } catch (Exception e) {
                 mProcessingEnvironment.getMessager().printMessage(
                         Diagnostic.Kind.NOTE,
@@ -491,6 +553,21 @@ class ClassResolver {
         throw new GlueModuleFactoryException("Failed to resolve type of " + parent.getSimpleName() + " which is required to use instance method " + method, method);
     }
 
+    private CodeElement resolveInstanceMethodCallOnParent(DeclaredType parentType, ExecutableElement method, List<GlueableInfo> glueables) {
+        final ClassResolver parentResolver = new ClassResolver(mProcessingEnvironment, mResolvedElementsMap, mFactoryFields, mFactoryBuilder, parentType);
+        final ResolveResult result = parentResolver.resolveClass(glueables);
+        final Field parentField = getFieldInFactoryFor(result.getBaseType(), result::getType, result::getValue);
+        return Methods.call(method, parentField);
+    }
+
+    private TypeMirror resolveReturnType(ExecutableElement method) {
+        if (method.getReturnType().getKind() == TypeKind.TYPEVAR) {
+            final ExecutableType executableType = (ExecutableType) mProcessingEnvironment.getTypeUtils().asMemberOf(mDeclaredType, method);
+            return executableType.getReturnType();
+        }
+        return method.getReturnType();
+    }
+
     private List<DeclaredType> resolveDeclaredTypesForAmbiguousType(DeclaredType type, List<GlueableInfo> glueables) {
         if (type.getTypeArguments().stream().noneMatch(argument -> argument.getKind() == TypeKind.WILDCARD || argument.getKind() == TypeKind.TYPEVAR)) {
             return Collections.singletonList(type);
@@ -498,8 +575,7 @@ class ClassResolver {
 
         final List<DeclaredType> result = new ArrayList<>();
         final TypeElement element = (TypeElement) mProcessingEnvironment.getTypeUtils().asElement(type);
-        final Map<? extends TypeParameterElement, EndlessIterator<MatchedGlueable>> typeParameterMap = element.getTypeParameters()
-                .stream()
+        final Map<? extends TypeParameterElement, EndlessIterator<MatchedGlueable>> typeParameterMap = element.getTypeParameters().stream()
                 .collect(Collectors.<TypeParameterElement, TypeParameterElement, EndlessIterator<MatchedGlueable>>toMap(
                         parameter -> parameter,
                         parameter -> {
@@ -562,39 +638,8 @@ class ClassResolver {
                 .collect(Collectors.toList());
     }
 
-    private CodeElement resolveParentForInstanceMethod(ExecutableElement method, List<GlueableInfo> glueables, CacheSetting cacheSetting, DeclaredType parentType) {
-        final ClassResolver parentResolver = new ClassResolver(mProcessingEnvironment, mResolvedElementsMap, mFactoryFields, mFactoryBuilder, parentType);
-        final ResolveResult result = parentResolver.resolveClass(glueables);
-        final Field parentField = getFieldInFactoryFor(result.getBaseType(), () -> new Field.Builder()
-                .setModifiers(EnumSet.of(Modifier.PRIVATE, Modifier.STATIC, Modifier.FINAL))
-                .setType(result.getType())
-                .setInitialValue(result.getValue())
-                .build());
-
-        final TypeMirror returnType = resolveReturnType(method);
-        final CodeElement resultElement = Methods.call(method, parentField);
-        if (cacheSetting == CacheSetting.CREATE_NEW_INSTANCE) {
-            return resultElement;
-        }
-
-        return getFieldInNestedClassFor(returnType, () -> new Field.Builder()
-                .setModifiers(EnumSet.of(Modifier.PRIVATE, Modifier.FINAL))
-                .setType(Types.of(returnType))
-                .setInitialValue(resultElement)
-                .build());
-    }
-
-    private TypeMirror resolveReturnType(ExecutableElement method) {
-
-        if (method.getReturnType().getKind() == TypeKind.TYPEVAR) {
-            final ExecutableType executableType = (ExecutableType) mProcessingEnvironment.getTypeUtils().asMemberOf(mDeclaredType, method);
-            return executableType.getReturnType();
-        }
-
-        return method.getReturnType();
-    }
-
-    private CodeElement resolveField(VariableElement fieldElement) {
+    private CodeElement resolveField(GlueableInfo info) {
+        final VariableElement fieldElement = (VariableElement) info.getElement();
         final TypeElement enclosingElement = (TypeElement) fieldElement.getEnclosingElement();
         return new Block().append(Types.of(enclosingElement)).append(".").append(fieldElement.getSimpleName().toString());
     }
@@ -700,39 +745,6 @@ class ClassResolver {
             int result = mInfo != null ? mInfo.hashCode() : 0;
             result = 31 * result + (mDeclaredType != null ? mDeclaredType.hashCode() : 0);
             return result;
-        }
-    }
-
-    private static class EndlessIterator<T> implements Iterator<T> {
-
-        private final List<T> mList;
-        private int mIndex = 0;
-
-        private EndlessIterator(List<T> list) {
-            mList = Collections.unmodifiableList(list);
-        }
-
-        @Override
-        public boolean hasNext() {
-            return !mList.isEmpty();
-        }
-
-        public int getItemCount() {
-            return mList.size();
-        }
-
-        public boolean isEmpty() {
-            return mList.isEmpty();
-        }
-
-        @Override
-        public T next() {
-            return mList.get(mIndex++ % mList.size());
-        }
-
-        @Override
-        public String toString() {
-            return mList.toString();
         }
     }
 }
