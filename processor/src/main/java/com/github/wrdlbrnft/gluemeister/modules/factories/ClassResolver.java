@@ -160,7 +160,7 @@ class ClassResolver {
             return resolveCollect(method, executableType, glueables, cacheSetting);
         }
 
-        final List<MatchedGlueable> matchingGlueables = findAllGlueablesForElement(executableType.getReturnType(), glueables);
+        final List<MatchedGlueable> matchingGlueables = findAllGlueablesForElement(method, executableType.getReturnType(), glueables);
         for (MatchedGlueable matchedGlueable : matchingGlueables) {
             try {
                 return resolveGlueableCodeElement(matchedGlueable, glueables, cacheSetting);
@@ -191,7 +191,7 @@ class ClassResolver {
 
         final List<TypeMirror> typeParameters = Utils.getTypeParameters(returnType);
         final TypeMirror collectedTypeMirror = typeParameters.get(0);
-        final List<MatchedGlueable> matchingGlueables = findAllGlueablesForElement(collectedTypeMirror, glueables);
+        final List<MatchedGlueable> matchingGlueables = findAllGlueablesForElement(method, collectedTypeMirror, glueables);
 
         if (matchingGlueables.isEmpty()) {
             return METHOD_EMPTY_LIST.callOnTarget(Types.COLLECTIONS);
@@ -286,7 +286,7 @@ class ClassResolver {
                         .map(parameter -> {
                             final GlueSettings glueSettingsAnnotation = parameter.getAnnotation(GlueSettings.class);
                             final CacheSetting cacheSetting = glueSettingsAnnotation != null ? glueSettingsAnnotation.cache() : CacheSetting.SINGLETON;
-                            final List<MatchedGlueable> matchingGlueables = findAllGlueablesForElement(parameter.asType(), glueables);
+                            final List<MatchedGlueable> matchingGlueables = findAllGlueablesForElement(parameter, parameter.asType(), glueables);
                             for (MatchedGlueable matchedGlueable : matchingGlueables) {
                                 try {
                                     return resolveGlueableCodeElement(matchedGlueable, glueables, cacheSetting);
@@ -320,8 +320,8 @@ class ClassResolver {
         throw new GlueModuleFactoryException("GlueMeister cannot create instances of " + entityElement.getSimpleName() + " because there is no constructor whose parameters can be satisfied. Look at the previous warnings to figure out why.", entityElement);
     }
 
-    private List<MatchedGlueable> findAllGlueablesForElement(TypeMirror parameter, List<GlueableInfo> glueables) {
-        final GlueSettings glueSettings = parameter.getAnnotation(GlueSettings.class);
+    private List<MatchedGlueable> findAllGlueablesForElement(Element element, TypeMirror parameter, List<GlueableInfo> glueables) {
+        final GlueSettings glueSettings = element.getAnnotation(GlueSettings.class);
         final String key = glueSettings != null ? glueSettings.key() : "";
         return glueables.stream()
                 .filter(info -> key.trim().isEmpty() || key.equals(info.getKey()))
