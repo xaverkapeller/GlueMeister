@@ -101,6 +101,7 @@ public class GlueMeisterProcessor extends AbstractProcessor {
         final List<GlueModuleInfo> glueModuleInfos = currentConfig.getGlueModuleInfos();
         final List<GlueableInfo> allGlueables = Stream.of(currentConfig.getGlueableInfos(), dependencyConfig.getGlueableInfos())
                 .flatMap(Collection::stream)
+                .filter(GlueableInfo::isEnabled)
                 .collect(Collectors.toList());
         for (GlueModuleInfo glueModuleInfo : glueModuleInfos) {
             try {

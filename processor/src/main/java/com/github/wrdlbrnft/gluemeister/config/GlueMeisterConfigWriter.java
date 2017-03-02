@@ -55,7 +55,8 @@ class GlueMeisterConfigWriter {
                 .map(info -> new GlueableConfigEntry(
                         createIdentifier(info.getElement()),
                         info.getKind(),
-                        info.getKey()
+                        info.getKey(),
+                        info.isEnabled()
                 ))
                 .collect(Collectors.toList());
         return new GlueMeisterConfigFile(

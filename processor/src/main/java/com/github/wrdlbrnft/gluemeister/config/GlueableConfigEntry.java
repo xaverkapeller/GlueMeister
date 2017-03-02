@@ -19,10 +19,14 @@ class GlueableConfigEntry {
     @SerializedName("key")
     private String mKey;
 
-    public GlueableConfigEntry(String identifier, GlueableInfo.Kind kind, String key) {
+    @SerializedName("enabled")
+    private boolean mEnabled = true;
+
+    public GlueableConfigEntry(String identifier, GlueableInfo.Kind kind, String key, boolean enabled) {
         mIdentifier = identifier;
         mKind = kind;
         mKey = key;
+        mEnabled = enabled;
     }
 
     private GlueableConfigEntry() {
@@ -38,5 +42,9 @@ class GlueableConfigEntry {
 
     public String getKey() {
         return mKey;
+    }
+
+    public boolean isEnabled() {
+        return mEnabled;
     }
 }

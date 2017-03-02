@@ -22,4 +22,5 @@ public interface GlueableInfo {
     Kind getKind();
     Element getElement();
     String getKey();
+    boolean isEnabled();
 }

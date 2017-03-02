@@ -13,5 +13,6 @@ import java.lang.annotation.Target;
 @Target({ElementType.TYPE, ElementType.METHOD, ElementType.FIELD})
 @Retention(RetentionPolicy.CLASS)
 public @interface Glueable {
-    String value() default "";
+    String key() default "";
+    boolean enabled() default true;
 }

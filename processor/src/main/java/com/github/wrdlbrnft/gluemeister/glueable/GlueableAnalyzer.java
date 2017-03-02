@@ -88,16 +88,9 @@ public class GlueableAnalyzer {
                         ? GlueableInfo.Kind.ABSTRACT_CLASS
                         : GlueableInfo.Kind.CLASS,
                 classElement,
-                parseKey(classElement)
+                parseKey(classElement),
+                isEnabled(classElement)
         );
-    }
-
-    private String parseKey(Element element) {
-        final Glueable glueableAnnotation = element.getAnnotation(Glueable.class);
-        if (glueableAnnotation.value().trim().isEmpty()) {
-            return null;
-        }
-        return glueableAnnotation.value();
     }
 
     private GlueableInfo analyzeInterface(TypeElement interfaceElement) {
@@ -106,7 +99,8 @@ public class GlueableAnalyzer {
         return new GlueableInfoImpl(
                 GlueableInfo.Kind.INTERFACE,
                 interfaceElement,
-                parseKey(interfaceElement)
+                parseKey(interfaceElement),
+                isEnabled(interfaceElement)
         );
     }
 
@@ -117,7 +111,8 @@ public class GlueableAnalyzer {
         return new GlueableInfoImpl(
                 GlueableInfo.Kind.STATIC_FIELD,
                 fieldElement,
-                parseKey(fieldElement)
+                parseKey(fieldElement),
+                isEnabled(fieldElement)
         );
     }
 
@@ -126,8 +121,22 @@ public class GlueableAnalyzer {
         return new GlueableInfoImpl(
                 isStatic(methodElement) ? GlueableInfo.Kind.STATIC_METHOD : GlueableInfo.Kind.INSTANCE_METHOD,
                 methodElement,
-                parseKey(methodElement)
+                parseKey(methodElement),
+                isEnabled(methodElement)
         );
+    }
+
+    private static String parseKey(Element element) {
+        final Glueable annotation = element.getAnnotation(Glueable.class);
+        if (annotation.key().trim().isEmpty()) {
+            return null;
+        }
+        return annotation.key();
+    }
+
+    private static boolean isEnabled(Element element) {
+        final Glueable annotation = element.getAnnotation(Glueable.class);
+        return annotation.enabled();
     }
 
     private static class GlueableInfoImpl implements GlueableInfo {
@@ -135,11 +144,13 @@ public class GlueableAnalyzer {
         private final Kind mKind;
         private final Element mElement;
         private final String mKey;
+        private final boolean mEnabled;
 
-        private GlueableInfoImpl(Kind kind, Element element, String key) {
+        private GlueableInfoImpl(Kind kind, Element element, String key, boolean enabled) {
             mKind = kind;
             mElement = element;
             mKey = key;
+            mEnabled = enabled;
         }
 
         public Kind getKind() {
@@ -154,6 +165,11 @@ public class GlueableAnalyzer {
         @Override
         public String getKey() {
             return mKey;
+        }
+
+        @Override
+        public boolean isEnabled() {
+            return mEnabled;
         }
     }
 }

@@ -108,10 +108,12 @@ class GlueMeisterConfigReader {
     private GlueableInfo parseGlueableConfigEntry(GlueableConfigEntry configEntry) {
         final GlueableInfo.Kind kind = configEntry.getKind();
         final String identifier = configEntry.getIdentifier();
+        final Element element = findGlueableElement(kind, identifier);
         return new GlueableInfoImpl(
                 kind,
-                findGlueableElement(kind, identifier),
-                configEntry.getKey()
+                element,
+                configEntry.getKey(),
+                configEntry.isEnabled()
         );
     }
 
@@ -243,11 +245,13 @@ class GlueMeisterConfigReader {
         private final Kind mKind;
         private final Element mElement;
         private final String mKey;
+        private final boolean mEnabled;
 
-        private GlueableInfoImpl(Kind kind, Element element, String key) {
+        private GlueableInfoImpl(Kind kind, Element element, String key, boolean enabled) {
             mKind = kind;
             mElement = element;
             mKey = key;
+            mEnabled = enabled;
         }
 
         public Kind getKind() {
@@ -262,6 +266,11 @@ class GlueMeisterConfigReader {
         @Override
         public String getKey() {
             return mKey;
+        }
+
+        @Override
+        public boolean isEnabled() {
+            return mEnabled;
         }
     }
 }
