@@ -1,4 +1,4 @@
-# GlueMeister
+# GlueMeister 
 
 The smartest, most easy to use dependency injection framework out there!
 
