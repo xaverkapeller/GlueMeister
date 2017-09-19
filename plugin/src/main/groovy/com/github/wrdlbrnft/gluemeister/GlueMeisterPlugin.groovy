@@ -26,7 +26,7 @@ class GlueMeisterPlugin implements Plugin<Project> {
             final projectInfo = ProjectInfo.analyzeProject(project)
 
             project.dependencies {
-                provided 'com.github.wrdlbrnft:glue-meister-api:' + BuildConfig.VERSION
+                compileOnly 'com.github.wrdlbrnft:glue-meister-api:' + BuildConfig.VERSION
                 annotationProcessor 'com.github.wrdlbrnft:glue-meister-processor:' + BuildConfig.VERSION
             }
 
@@ -63,8 +63,9 @@ class GlueMeisterPlugin implements Plugin<Project> {
         final glueables = []
 
         final Set<File> files = new HashSet<>();
-        project.configurations.compile.resolve().forEach { files.add(it) }
-        project.configurations.provided.resolve().forEach { files.add(it) }
+        project.configurations.implementation.resolve().forEach { files.add(it) }
+        project.configurations.api.resolve().forEach { files.add(it) }
+        project.configurations.compileOnly.resolve().forEach { files.add(it) }
 
         final flavor = variant.productFlavors[0]
         if (flavor) {
